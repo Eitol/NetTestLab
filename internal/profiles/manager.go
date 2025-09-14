@@ -14,9 +14,9 @@ import (
 
 // Manager handles network profiles
 type Manager struct {
-	mu           sync.RWMutex
-	profiles     map[string]*nettestlabv1.NetworkProfile
-	profilesDir  string
+	mu          sync.RWMutex
+	profiles    map[string]*nettestlabv1.NetworkProfile
+	profilesDir string
 }
 
 // NewManager creates a new profile manager
@@ -67,7 +67,7 @@ func (m *Manager) saveProfile(profile *nettestlabv1.NetworkProfile) error {
 // loadProfile loads a single profile from its JSON file
 func (m *Manager) loadProfile(profileName string) (*nettestlabv1.NetworkProfile, error) {
 	filePath := m.getProfileFilePath(profileName)
-	
+
 	// Check if file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("profile file %s not found", filePath)
@@ -106,7 +106,7 @@ func (m *Manager) loadAllProfiles() error {
 
 		// Extract profile name from filename
 		profileName := strings.TrimSuffix(entry.Name(), ".json")
-		
+
 		profile, err := m.loadProfile(profileName)
 		if err != nil {
 			// Log error but continue with other profiles
@@ -123,7 +123,7 @@ func (m *Manager) loadAllProfiles() error {
 // deleteProfile removes a profile file from disk
 func (m *Manager) deleteProfileFile(profileName string) error {
 	filePath := m.getProfileFilePath(profileName)
-	
+
 	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to delete profile file %s: %w", filePath, err)
 	}
