@@ -1,0 +1,15 @@
+version: v1
+breaking:
+  use:
+    - FILE
+lint:
+  use:
+    - STANDARD
+    - COMMENTS
+    - FILE_LOWER_SNAKE_CASE
+  except:
+    - PACKAGE_VERSION_SUFFIX
+    - RPC_RESPONSE_STANDARD_NAME
+deps:
+  - buf.build/googleapis/googleapis
+  - buf.build/bufbuild/protovalidate

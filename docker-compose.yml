@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  nettestlab:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - NETTESTLAB_HOST=0.0.0.0
+      - NETTESTLAB_PORT=8080
+      - NETTESTLAB_LOG_LEVEL=info
+    volumes:
+      - ./config:/etc/nettestlab:ro
+      - ./logs:/var/log/nettestlab
+    networks:
+      - nettestlab-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Test client for development
+  test-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    depends_on:
+      - nettestlab
+    environment:
+      - NETTESTLAB_SERVER=nettestlab:8080
+    networks:
+      - nettestlab-network
+    profiles:
+      - testing
+
+  # Monitoring with Prometheus (optional)
+  prometheus:
+    image: prom/prometheus:v2.40.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - nettestlab-network
+    profiles:
+      - monitoring
+
+  # Grafana for visualization (optional)
+  grafana:
+    image: grafana/grafana:9.3.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - nettestlab-network
+    profiles:
+      - monitoring
+
+networks:
+  nettestlab-network:
+    driver: bridge
+
+volumes:
+  grafana-storage:
