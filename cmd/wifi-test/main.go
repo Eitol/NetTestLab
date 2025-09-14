@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	pb "github.com/nettestlab/nettestlab/api/nettestlab/v1"
+	pb "github.com/Eitol/NetTestLab/api/nettestlab/v1"
 )
 
 func main() {

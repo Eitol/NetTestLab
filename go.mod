@@ -1,4 +1,4 @@
-module github.com/nettestlab/nettestlab
+module github.com/Eitol/NetTestLab
 
 go 1.21
 

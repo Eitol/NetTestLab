@@ -21,7 +21,7 @@ define Package/nettestlab
 	TITLE:=Network Testing Laboratory gRPC Server
 	DEPENDS:=+tc-bpf +kmod-sched-core +kmod-ifb
 	MAINTAINER:=NetTestLab Team
-	URL:=https://github.com/nettestlab/nettestlab
+	URL:=https://github.com/Eitol/NetTestLab
 endef
 
 define Package/nettestlab/description

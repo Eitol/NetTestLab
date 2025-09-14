@@ -7,8 +7,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	nettestlabv1 "github.com/nettestlab/nettestlab/api/nettestlab/v1"
-	"github.com/nettestlab/nettestlab/internal/network"
+	nettestlabv1 "github.com/Eitol/NetTestLab/api/nettestlab/v1"
+	"github.com/Eitol/NetTestLab/internal/network"
 )
 
 // NetworkControlService implements the gRPC network control service

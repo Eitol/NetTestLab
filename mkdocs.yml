@@ -3,7 +3,7 @@ site_description: Network simulation platform for mobile application testing
 site_url: https://nettestlab.github.io/docs
 
 repo_name: nettestlab/nettestlab
-repo_url: https://github.com/nettestlab/nettestlab
+repo_url: https://github.com/Eitol/NetTestLab
 
 theme:
   name: material

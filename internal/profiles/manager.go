@@ -2,30 +2,137 @@ package profiles
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
-	nettestlabv1 "github.com/nettestlab/nettestlab/api/nettestlab/v1"
+	nettestlabv1 "github.com/Eitol/NetTestLab/api/nettestlab/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Manager handles network profiles
 type Manager struct {
-	mu       sync.RWMutex
-	profiles map[string]*nettestlabv1.NetworkProfile
+	mu           sync.RWMutex
+	profiles     map[string]*nettestlabv1.NetworkProfile
+	profilesDir  string
 }
 
 // NewManager creates a new profile manager
 func NewManager() *Manager {
+	return NewManagerWithProfilesDir("./data/profiles")
+}
+
+// NewManagerWithProfilesDir creates a new profile manager with custom profiles directory
+func NewManagerWithProfilesDir(profilesDir string) *Manager {
 	return &Manager{
-		profiles: make(map[string]*nettestlabv1.NetworkProfile),
+		profiles:    make(map[string]*nettestlabv1.NetworkProfile),
+		profilesDir: profilesDir,
 	}
 }
 
-// LoadBuiltInProfiles loads predefined network profiles
-func (m *Manager) LoadBuiltInProfiles() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// ensureProfilesDir creates the profiles directory if it doesn't exist
+func (m *Manager) ensureProfilesDir() error {
+	return os.MkdirAll(m.profilesDir, 0755)
+}
 
+// getProfileFilePath returns the file path for a given profile name
+func (m *Manager) getProfileFilePath(profileName string) string {
+	return filepath.Join(m.profilesDir, profileName+".json")
+}
+
+// saveProfile saves a single profile to its JSON file
+func (m *Manager) saveProfile(profile *nettestlabv1.NetworkProfile) error {
+	if err := m.ensureProfilesDir(); err != nil {
+		return fmt.Errorf("failed to create profiles directory: %w", err)
+	}
+
+	profileJSON, err := protojson.MarshalOptions{
+		Multiline: true,
+		Indent:    "  ",
+	}.Marshal(profile)
+	if err != nil {
+		return fmt.Errorf("failed to marshal profile %s: %w", profile.Name, err)
+	}
+
+	filePath := m.getProfileFilePath(profile.Name)
+	if err := os.WriteFile(filePath, profileJSON, 0644); err != nil {
+		return fmt.Errorf("failed to write profile file %s: %w", filePath, err)
+	}
+
+	return nil
+}
+
+// loadProfile loads a single profile from its JSON file
+func (m *Manager) loadProfile(profileName string) (*nettestlabv1.NetworkProfile, error) {
+	filePath := m.getProfileFilePath(profileName)
+	
+	// Check if file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("profile file %s not found", filePath)
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read profile file %s: %w", filePath, err)
+	}
+
+	profile := &nettestlabv1.NetworkProfile{}
+	if err := protojson.Unmarshal(data, profile); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal profile %s: %w", profileName, err)
+	}
+
+	return profile, nil
+}
+
+// loadAllProfiles loads all profiles from the profiles directory
+func (m *Manager) loadAllProfiles() error {
+	// Check if directory exists
+	if _, err := os.Stat(m.profilesDir); os.IsNotExist(err) {
+		// Directory doesn't exist, which is fine for first run
+		return nil
+	}
+
+	entries, err := os.ReadDir(m.profilesDir)
+	if err != nil {
+		return fmt.Errorf("failed to read profiles directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		// Extract profile name from filename
+		profileName := strings.TrimSuffix(entry.Name(), ".json")
+		
+		profile, err := m.loadProfile(profileName)
+		if err != nil {
+			// Log error but continue with other profiles
+			fmt.Printf("Warning: failed to load profile %s: %v\n", profileName, err)
+			continue
+		}
+
+		m.profiles[profileName] = profile
+	}
+
+	return nil
+}
+
+// deleteProfile removes a profile file from disk
+func (m *Manager) deleteProfileFile(profileName string) error {
+	filePath := m.getProfileFilePath(profileName)
+	
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete profile file %s: %w", filePath, err)
+	}
+
+	return nil
+}
+
+// createDefaultProfiles creates the default built-in profiles if they don't exist
+func (m *Manager) createDefaultProfiles() error {
 	builtInProfiles := []*nettestlabv1.NetworkProfile{
 		// 2G Network Profile
 		{
@@ -201,9 +308,32 @@ func (m *Manager) LoadBuiltInProfiles() error {
 		},
 	}
 
-	// Add all built-in profiles
+	// Create each profile file if it doesn't exist
 	for _, profile := range builtInProfiles {
-		m.profiles[profile.Name] = profile
+		filePath := m.getProfileFilePath(profile.Name)
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			if err := m.saveProfile(profile); err != nil {
+				return fmt.Errorf("failed to create default profile %s: %w", profile.Name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// LoadBuiltInProfiles loads all profiles from disk and creates default ones if they don't exist
+func (m *Manager) LoadBuiltInProfiles() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// First, create default profiles if they don't exist
+	if err := m.createDefaultProfiles(); err != nil {
+		return fmt.Errorf("failed to create default profiles: %w", err)
+	}
+
+	// Then, load all profiles from disk
+	if err := m.loadAllProfiles(); err != nil {
+		return fmt.Errorf("failed to load profiles: %w", err)
 	}
 
 	return nil
@@ -259,8 +389,15 @@ func (m *Manager) CreateProfile(profile *nettestlabv1.NetworkProfile) error {
 	profile.Version = 1
 	profile.BuiltIn = false
 
-	// Store profile
+	// Store profile in memory
 	m.profiles[profile.Name] = profile
+
+	// Save to disk
+	if err := m.saveProfile(profile); err != nil {
+		// Remove from memory if save failed
+		delete(m.profiles, profile.Name)
+		return fmt.Errorf("failed to save profile: %w", err)
+	}
 
 	return nil
 }
@@ -275,20 +412,25 @@ func (m *Manager) UpdateProfile(name string, profile *nettestlabv1.NetworkProfil
 		return fmt.Errorf("profile %s not found", name)
 	}
 
-	// Cannot update built-in profiles
-	if existing.BuiltIn {
-		return fmt.Errorf("cannot update built-in profile %s", name)
-	}
+	// Store original for rollback
+	original := m.profiles[name]
 
-	// Update metadata
+	// Update metadata - preserve BuiltIn status and timestamps for existing profiles
 	profile.CreatedAt = existing.CreatedAt
 	profile.UpdatedAt = timestamppb.Now()
 	profile.Version = existing.Version + 1
-	profile.BuiltIn = false
-	profile.Name = name // Ensure name consistency
+	profile.BuiltIn = existing.BuiltIn // Preserve built-in status
+	profile.Name = name                // Ensure name consistency
 
-	// Store updated profile
+	// Store updated profile in memory
 	m.profiles[name] = profile
+
+	// Save to disk
+	if err := m.saveProfile(profile); err != nil {
+		// Rollback on failure
+		m.profiles[name] = original
+		return fmt.Errorf("failed to save updated profile: %w", err)
+	}
 
 	return nil
 }
@@ -298,16 +440,23 @@ func (m *Manager) DeleteProfile(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	profile, exists := m.profiles[name]
+	_, exists := m.profiles[name]
 	if !exists {
 		return fmt.Errorf("profile %s not found", name)
 	}
 
-	// Cannot delete built-in profiles
-	if profile.BuiltIn {
-		return fmt.Errorf("cannot delete built-in profile %s", name)
+	// Store original for rollback
+	original := m.profiles[name]
+
+	// Delete from memory
+	delete(m.profiles, name)
+
+	// Delete from disk
+	if err := m.deleteProfileFile(name); err != nil {
+		// Rollback on failure
+		m.profiles[name] = original
+		return fmt.Errorf("failed to delete profile file: %w", err)
 	}
 
-	delete(m.profiles, name)
 	return nil
 }

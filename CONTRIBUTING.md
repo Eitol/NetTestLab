@@ -41,7 +41,7 @@ Thank you for your interest in contributing to NetTestLab! This document provide
 
 1. **Clone and setup:**
    ```bash
-   git clone https://github.com/yourusername/nettestlab.git
+   git clone https://github.com/Eitol/NetTestLab.git
    cd nettestlab
    go mod download
    ```

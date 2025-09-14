@@ -12,10 +12,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
-	nettestlabv1 "github.com/nettestlab/nettestlab/api/nettestlab/v1"
-	"github.com/nettestlab/nettestlab/internal/network"
-	"github.com/nettestlab/nettestlab/internal/profiles"
-	"github.com/nettestlab/nettestlab/internal/server"
+	nettestlabv1 "github.com/Eitol/NetTestLab/api/nettestlab/v1"
+	"github.com/Eitol/NetTestLab/internal/network"
+	"github.com/Eitol/NetTestLab/internal/profiles"
+	"github.com/Eitol/NetTestLab/internal/server"
 )
 
 var (

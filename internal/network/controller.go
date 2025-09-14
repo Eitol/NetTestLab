@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	nettestlabv1 "github.com/nettestlab/nettestlab/api/nettestlab/v1"
+	nettestlabv1 "github.com/Eitol/NetTestLab/api/nettestlab/v1"
 )
 
 // Controller manages network traffic control

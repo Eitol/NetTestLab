@@ -6,9 +6,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	nettestlabv1 "github.com/nettestlab/nettestlab/api/nettestlab/v1"
-	"github.com/nettestlab/nettestlab/internal/network"
-	"github.com/nettestlab/nettestlab/internal/profiles"
+	nettestlabv1 "github.com/Eitol/NetTestLab/api/nettestlab/v1"
+	"github.com/Eitol/NetTestLab/internal/network"
+	"github.com/Eitol/NetTestLab/internal/profiles"
 )
 
 // ProfileService implements the gRPC profile service

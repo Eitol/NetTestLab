@@ -56,7 +56,7 @@
 
    ```bash
    # Download the latest release
-   wget https://github.com/yourusername/nettestlab/releases/latest/download/nettestlab_1.0.0_aarch64.ipk
+   wget https://github.com/Eitol/NetTestLab/releases/latest/download/nettestlab_1.0.0_aarch64.ipk
    
    # Install the package
    opkg install nettestlab_1.0.0_aarch64.ipk
@@ -167,6 +167,48 @@ config nettestlab 'main'
 logread | grep nettestlab
 ```
 
+#### Data Persistence
+
+NetTestLab uses a file-based profile system for maximum flexibility:
+
+- **Profile Storage**: Each network profile is stored as an individual JSON file in `./data/profiles/`
+- **Built-in Profiles**: Default profiles (2G, 3G, 4G, 5G, WiFi, Satellite) are created automatically on first run
+- **File Naming**: Profile files are named using the profile name (e.g., `4g.json`, `wifi.json`, `custom-profile.json`)
+- **Editable Built-ins**: Built-in profiles can be modified or even deleted since they're stored as regular files
+- **Custom Profiles**: User-created profiles are automatically saved and persisted
+- **Manual Editing**: Profiles can be manually edited by modifying the JSON files directly
+- **Auto-reload**: Changes to profile files are loaded when the service starts
+
+**Profile File Structure:**
+```json
+{
+  "name": "custom_profile",
+  "displayName": "Custom Network Profile",
+  "description": "Description of the network conditions",
+  "type": "PROFILE_TYPE_CUSTOM",
+  "builtIn": false,
+  "tags": ["custom", "testing"],
+  "conditions": {
+    "latency": {
+      "delayMs": 100,
+      "enabled": true
+    },
+    "packetLoss": {
+      "percentage": 1.0,
+      "enabled": true,
+      "pattern": "LOSS_PATTERN_RANDOM"
+    },
+    "bandwidth": {
+      "downloadBps": 10000000,
+      "uploadBps": 5000000,
+      "enabled": true
+    }
+  }
+}
+```
+
+The server automatically creates the data directory if it doesn't exist and handles profile loading/saving transparently.
+
 ## 🛠️ Development
 
 ### Building from Source
@@ -174,8 +216,8 @@ logread | grep nettestlab
 1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/yourusername/nettestlab.git
-   cd nettestlab
+   git clone https://github.com/Eitol/NetTestLab.git
+   cd NetTestLab
    ```
 
 2. **Install dependencies:**
@@ -365,8 +407,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Support
 
 - **Documentation**: [docs/](docs/)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/nettestlab/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/nettestlab/discussions)
+- **Issues**: [GitHub Issues](https://github.com/Eitol/NetTestLab/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Eitol/NetTestLab/discussions)
 
 ---
 

@@ -57,4 +57,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-For more information about each release, see the [GitHub Releases](https://github.com/yourusername/nettestlab/releases) page.
+For more information about each release, see the [GitHub Releases](https://github.com/Eitol/NetTestLab/releases) page.

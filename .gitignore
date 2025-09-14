@@ -86,3 +86,7 @@ site/
 *.tmp
 *.temp
 *.bak
+
+# Data files
+/data/
+*.json

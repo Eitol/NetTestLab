@@ -45,7 +45,7 @@ NetTestLab/
 │   └── examples/            # Usage examples
 │
 ├── scripts/                 # Build and utility scripts
-│   └── build.sh             # Main build script
+│   └── build-openwrt-package.sh  # OpenWrt package build script
 │
 └── .github/                 # GitHub Actions workflows
     └── workflows/           # CI/CD pipeline definitions

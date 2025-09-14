@@ -30,7 +30,7 @@ linters-settings:
     lines: 100
     statements: 50
   goimports:
-    local-prefixes: github.com/nettestlab/nettestlab
+    local-prefixes: github.com/Eitol/NetTestLab
   revive:
     confidence: 0.8
     rules:

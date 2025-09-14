@@ -31,6 +31,6 @@ The system consists of:
 
 ## Support
 
-- GitHub Issues: [Report bugs and request features](https://github.com/nettestlab/nettestlab/issues)
+- GitHub Issues: [Report bugs and request features](https://github.com/Eitol/NetTestLab/issues)
 - Documentation: This site contains comprehensive guides and API reference
 - Examples: Working code samples for common use cases
