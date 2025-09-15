@@ -1,9 +1,15 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"runtime"
+	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"connectrpc.com/connect"
@@ -199,20 +205,239 @@ func (s *MonitoringService) GetHistoricalMetrics(ctx context.Context, req *conne
 	}), nil
 }
 
-// Helper functions for system metrics (placeholders)
+// Helper functions for system metrics (real implementations)
 func getCPUUsage() float32 {
-	// TODO Placeholder - in real implementation, read from /proc/stat
-	return 15.5
+	switch runtime.GOOS {
+	case "linux":
+		return getCPUUsageLinux()
+	case "darwin":
+		return getCPUUsageMacOS()
+	default:
+		// Fallback para otros sistemas
+		return 15.5
+	}
+}
+
+// getCPUUsageLinux obtiene el uso de CPU en Linux leyendo /proc/stat
+func getCPUUsageLinux() float32 {
+	file, err := os.Open("/proc/stat")
+	if err != nil {
+		return 0.0
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	if !scanner.Scan() {
+		return 0.0
+	}
+
+	line := scanner.Text()
+	fields := strings.Fields(line)
+	if len(fields) < 8 || fields[0] != "cpu" {
+		return 0.0
+	}
+
+	// Parse CPU times
+	user, _ := strconv.ParseUint(fields[1], 10, 64)
+	nice, _ := strconv.ParseUint(fields[2], 10, 64)
+	system, _ := strconv.ParseUint(fields[3], 10, 64)
+	idle, _ := strconv.ParseUint(fields[4], 10, 64)
+	iowait, _ := strconv.ParseUint(fields[5], 10, 64)
+	irq, _ := strconv.ParseUint(fields[6], 10, 64)
+	softirq, _ := strconv.ParseUint(fields[7], 10, 64)
+
+	// Calculate total and idle time
+	totalTime := user + nice + system + idle + iowait + irq + softirq
+	idleTime := idle + iowait
+
+	if totalTime == 0 {
+		return 0.0
+	}
+
+	// Calculate CPU usage percentage
+	usage := float64(totalTime-idleTime) / float64(totalTime) * 100.0
+	return float32(usage)
+}
+
+// getCPUUsageMacOS obtiene el uso de CPU en macOS usando el comando top
+func getCPUUsageMacOS() float32 {
+	cmd := exec.Command("top", "-l", "1", "-n", "0")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0.0
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "CPU usage:") {
+			// Buscar el porcentaje de usuario + sistema
+			fields := strings.Fields(line)
+			for i, field := range fields {
+				if strings.Contains(field, "user") && i > 0 {
+					userStr := strings.TrimSuffix(fields[i-1], "%")
+					user, err := strconv.ParseFloat(userStr, 32)
+					if err == nil {
+						// Buscar sistema
+						for j := i + 1; j < len(fields)-1; j++ {
+							if strings.Contains(fields[j+1], "sys") {
+								sysStr := strings.TrimSuffix(fields[j], "%")
+								sys, err := strconv.ParseFloat(sysStr, 32)
+								if err == nil {
+									return float32(user + sys)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return 0.0
 }
 
 func getMemoryUsage() float32 {
-	// TODO Placeholder - in real implementation, read from /proc/meminfo
-	return 45.2
+	switch runtime.GOOS {
+	case "linux":
+		return getMemoryUsageLinux()
+	case "darwin":
+		return getMemoryUsageMacOS()
+	default:
+		// Fallback usando runtime.MemStats
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		if m.Sys > 0 {
+			return float32(m.Alloc) / float32(m.Sys) * 100.0
+		}
+		return 45.2
+	}
+}
+
+// getMemoryUsageLinux obtiene el uso de memoria en Linux leyendo /proc/meminfo
+func getMemoryUsageLinux() float32 {
+	file, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return 0.0
+	}
+	defer file.Close()
+
+	var memTotal, memAvailable uint64
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+		if len(fields) >= 3 {
+			switch fields[0] {
+			case "MemTotal:":
+				memTotal, _ = strconv.ParseUint(fields[1], 10, 64)
+			case "MemAvailable:":
+				memAvailable, _ = strconv.ParseUint(fields[1], 10, 64)
+			}
+		}
+	}
+
+	if memTotal > 0 {
+		usage := float64(memTotal-memAvailable) / float64(memTotal) * 100.0
+		return float32(usage)
+	}
+	return 0.0
+}
+
+// getMemoryUsageMacOS obtiene el uso de memoria en macOS usando vm_stat
+func getMemoryUsageMacOS() float32 {
+	cmd := exec.Command("vm_stat")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0.0
+	}
+
+	lines := strings.Split(string(output), "\n")
+	var pageSize, freePages, inactivePages uint64
+
+	// Obtener tamaño de página (típicamente 4096)
+	if len(lines) > 0 && strings.Contains(lines[0], "page size") {
+		fields := strings.Fields(lines[0])
+		for i, field := range fields {
+			if field == "size" && i+2 < len(fields) {
+				pageSize, _ = strconv.ParseUint(fields[i+2], 10, 64)
+				break
+			}
+		}
+	}
+
+	if pageSize == 0 {
+		pageSize = 4096 // valor por defecto
+	}
+
+	// Parse las páginas
+	for _, line := range lines {
+		if strings.Contains(line, "Pages free:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 3 {
+				freeStr := strings.TrimSuffix(fields[2], ".")
+				freePages, _ = strconv.ParseUint(freeStr, 10, 64)
+			}
+		} else if strings.Contains(line, "Pages inactive:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 3 {
+				inactiveStr := strings.TrimSuffix(fields[2], ".")
+				inactivePages, _ = strconv.ParseUint(inactiveStr, 10, 64)
+			}
+		}
+	}
+
+	// Obtener memoria total del sistema usando sysctl
+	cmd = exec.Command("sysctl", "-n", "hw.memsize")
+	output, err = cmd.Output()
+	if err != nil {
+		return 0.0
+	}
+
+	memTotal, err := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64)
+	if err != nil {
+		return 0.0
+	}
+
+	// Calcular memoria usada
+	freeMemory := (freePages + inactivePages) * pageSize
+	usedMemory := memTotal - freeMemory
+
+	if memTotal > 0 {
+		usage := float64(usedMemory) / float64(memTotal) * 100.0
+		return float32(usage)
+	}
+	return 0.0
 }
 
 func getDiskUsage() float32 {
-	// Placeholder - in real implementation, use syscall.Statfs
-	return 60.0
+	switch runtime.GOOS {
+	case "linux":
+		return getDiskUsageUnix("/")
+	case "darwin":
+		return getDiskUsageUnix("/")
+	default:
+		return 60.0 // fallback
+	}
+}
+
+// getDiskUsageUnix obtiene el uso de disco usando syscall.Statfs
+func getDiskUsageUnix(path string) float32 {
+	var stat syscall.Statfs_t
+	err := syscall.Statfs(path, &stat)
+	if err != nil {
+		return 0.0
+	}
+
+	// Calcular espacio total y disponible
+	total := stat.Blocks * uint64(stat.Bsize)
+	available := stat.Bavail * uint64(stat.Bsize)
+	used := total - available
+
+	if total > 0 {
+		usage := float64(used) / float64(total) * 100.0
+		return float32(usage)
+	}
+	return 0.0
 }
 
 func getInterfaceMetrics(iface string) *nettestlabv1.InterfaceMetrics {
