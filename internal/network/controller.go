@@ -15,7 +15,9 @@ import (
 type Controller struct {
 	mu               sync.RWMutex
 	activeConditions map[string]*nettestlabv1.NetworkConditions
+	appliedProfiles  map[string]string // interface -> profile name
 	interfaces       map[string]*InterfaceInfo
+	envDetector      *EnvironmentDetector
 }
 
 // InterfaceInfo holds information about a network interface
@@ -30,13 +32,15 @@ type InterfaceInfo struct {
 func NewController() (*Controller, error) {
 	c := &Controller{
 		activeConditions: make(map[string]*nettestlabv1.NetworkConditions),
+		appliedProfiles:  make(map[string]string),
 		interfaces:       make(map[string]*InterfaceInfo),
+		envDetector:      NewEnvironmentDetector(),
 	}
 
 	// Initialize interface information
 	if err := c.refreshInterfaces(); err != nil {
-		// On non-Linux systems, create mock interfaces for testing
-		if runtime.GOOS != "linux" {
+		// On non-router systems, create mock interfaces for testing
+		if !c.envDetector.IsRouter() {
 			c.createMockInterfaces()
 		} else {
 			return nil, fmt.Errorf("failed to initialize interfaces: %w", err)
@@ -63,8 +67,8 @@ func (c *Controller) ApplyConditions(iface string, conditions *nettestlabv1.Netw
 	successCount := 0
 
 	for _, resolvedIface := range interfaces {
-		// On non-Linux systems, just store the conditions without applying tc rules
-		if runtime.GOOS != "linux" {
+		// On non-router systems, just store the conditions without applying tc rules
+		if !c.envDetector.IsRouter() {
 			c.activeConditions[resolvedIface] = conditions
 			successCount++
 			continue
@@ -119,6 +123,8 @@ func (c *Controller) ResetConditions(iface string, direction nettestlabv1.Traffi
 		if err := c.resetConditionsUnsafe(resolvedIface, direction); err != nil {
 			lastError = fmt.Errorf("failed to reset conditions on %s: %w", resolvedIface, err)
 		} else {
+			// Clear applied profile when resetting conditions
+			delete(c.appliedProfiles, resolvedIface)
 			successCount++
 		}
 	}
@@ -145,6 +151,28 @@ func (c *Controller) GetConditions(iface string) (*nettestlabv1.NetworkCondition
 	return conditions, exists
 }
 
+// SetAppliedProfile sets the applied profile name for an interface
+func (c *Controller) SetAppliedProfile(iface string, profileName string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.appliedProfiles[iface] = profileName
+}
+
+// GetAppliedProfile returns the applied profile name for an interface
+func (c *Controller) GetAppliedProfile(iface string) (string, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	profileName, exists := c.appliedProfiles[iface]
+	return profileName, exists
+}
+
+// ClearAppliedProfile removes the applied profile for an interface
+func (c *Controller) ClearAppliedProfile(iface string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.appliedProfiles, iface)
+}
+
 // GetInterfaces returns all available network interfaces
 func (c *Controller) GetInterfaces() map[string]*InterfaceInfo {
 	c.mu.RLock()
@@ -166,34 +194,98 @@ func (c *Controller) RefreshInterfaces() error {
 	return c.refreshInterfaces()
 }
 
-// createMockInterfaces creates mock interfaces for testing on non-Linux systems
+// createMockInterfaces creates mock interfaces for testing on non-router systems
 func (c *Controller) createMockInterfaces() {
-	c.interfaces = map[string]*InterfaceInfo{
-		"eth0": {
-			Name:        "eth0",
-			Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_ETHERNET,
-			IsUp:        true,
-			IPAddresses: []string{"192.168.1.100"},
-		},
-		"wlan0": {
-			Name:        "wlan0",
-			Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_WIRELESS,
-			IsUp:        true,
-			IPAddresses: []string{"192.168.1.101"},
-		},
-		"lo": {
-			Name:        "lo",
-			Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_LOOPBACK,
-			IsUp:        true,
-			IPAddresses: []string{"127.0.0.1"},
-		},
+	// Create realistic interfaces based on the operating system
+	switch runtime.GOOS {
+	case "darwin": // macOS
+		c.interfaces = map[string]*InterfaceInfo{
+			"en0": {
+				Name:        "en0",
+				Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_ETHERNET,
+				IsUp:        true,
+				IPAddresses: []string{"192.168.1.100", "10.0.0.100"},
+			},
+			"en1": {
+				Name:        "en1",
+				Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_WIRELESS,
+				IsUp:        true,
+				IPAddresses: []string{"192.168.1.101"},
+			},
+			"lo0": {
+				Name:        "lo0",
+				Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_LOOPBACK,
+				IsUp:        true,
+				IPAddresses: []string{"127.0.0.1", "::1"},
+			},
+			"utun0": {
+				Name:        "utun0",
+				Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_UNSPECIFIED,
+				IsUp:        true,
+				IPAddresses: []string{"10.8.0.1"},
+			},
+		}
+	case "windows":
+		c.interfaces = map[string]*InterfaceInfo{
+			"Ethernet": {
+				Name:        "Ethernet",
+				Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_ETHERNET,
+				IsUp:        true,
+				IPAddresses: []string{"192.168.1.100"},
+			},
+			"Wi-Fi": {
+				Name:        "Wi-Fi",
+				Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_WIRELESS,
+				IsUp:        true,
+				IPAddresses: []string{"192.168.1.101"},
+			},
+			"Loopback": {
+				Name:        "Loopback",
+				Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_LOOPBACK,
+				IsUp:        true,
+				IPAddresses: []string{"127.0.0.1"},
+			},
+		}
+	default: // Linux desktop, other Unix systems
+		c.interfaces = map[string]*InterfaceInfo{
+			"eth0": {
+				Name:        "eth0",
+				Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_ETHERNET,
+				IsUp:        true,
+				IPAddresses: []string{"192.168.1.100"},
+			},
+			"wlan0": {
+				Name:        "wlan0",
+				Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_WIRELESS,
+				IsUp:        true,
+				IPAddresses: []string{"192.168.1.101"},
+			},
+			"lo": {
+				Name:        "lo",
+				Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_LOOPBACK,
+				IsUp:        true,
+				IPAddresses: []string{"127.0.0.1"},
+			},
+			"docker0": {
+				Name:        "docker0",
+				Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_BRIDGE,
+				IsUp:        false, // Often down when no containers
+				IPAddresses: []string{"172.17.0.1"},
+			},
+			"tun0": {
+				Name:        "tun0",
+				Type:        nettestlabv1.InterfaceType_INTERFACE_TYPE_UNSPECIFIED,
+				IsUp:        false, // VPN interface, often down
+				IPAddresses: []string{},
+			},
+		}
 	}
 }
 
 // applyConditionsUnsafe applies conditions without locking (internal use)
 func (c *Controller) applyConditionsUnsafe(iface string, conditions *nettestlabv1.NetworkConditions, direction nettestlabv1.TrafficDirection) error {
-	// Skip actual tc commands on non-Linux systems
-	if runtime.GOOS != "linux" {
+	// Skip actual tc commands on non-router systems
+	if !c.envDetector.IsRouter() {
 		// Store fake conditions for testing
 		c.activeConditions[iface] = conditions
 		return nil
@@ -202,31 +294,9 @@ func (c *Controller) applyConditionsUnsafe(iface string, conditions *nettestlabv
 	// First, clear any existing qdisc on the interface
 	c.resetConditionsUnsafe(iface, direction)
 
-	var cmds [][]string
-
-	// Build tc commands based on conditions
-	if conditions.Latency != nil && conditions.Latency.Enabled {
-		cmds = append(cmds, c.buildLatencyCommand(iface, conditions.Latency, direction)...)
-	}
-
-	if conditions.PacketLoss != nil && conditions.PacketLoss.Enabled {
-		cmds = append(cmds, c.buildPacketLossCommand(iface, conditions.PacketLoss, direction)...)
-	}
-
-	if conditions.Bandwidth != nil && conditions.Bandwidth.Enabled {
-		cmds = append(cmds, c.buildBandwidthCommand(iface, conditions.Bandwidth, direction)...)
-	}
-
-	if conditions.Jitter != nil && conditions.Jitter.Enabled {
-		cmds = append(cmds, c.buildJitterCommand(iface, conditions.Jitter, direction)...)
-	}
-
-	if conditions.Corruption != nil && conditions.Corruption.Enabled {
-		cmds = append(cmds, c.buildCorruptionCommand(iface, conditions.Corruption, direction)...)
-	}
-
-	// Execute all commands
-	for _, cmd := range cmds {
+	// Build a single netem command with all parameters combined
+	cmd := c.buildCombinedNetworkCommand(iface, conditions, direction)
+	if len(cmd) > 0 {
 		if err := c.executeCommand(cmd); err != nil {
 			return fmt.Errorf("failed to execute command %v: %w", cmd, err)
 		}
@@ -240,8 +310,8 @@ func (c *Controller) applyConditionsUnsafe(iface string, conditions *nettestlabv
 
 // resetConditionsUnsafe removes conditions without locking (internal use)
 func (c *Controller) resetConditionsUnsafe(iface string, direction nettestlabv1.TrafficDirection) error {
-	// Skip actual tc commands on non-Linux systems
-	if runtime.GOOS != "linux" {
+	// Skip actual tc commands on non-router systems
+	if !c.envDetector.IsRouter() {
 		delete(c.activeConditions, iface)
 		return nil
 	}
@@ -281,13 +351,68 @@ func (c *Controller) resetConditionsUnsafe(iface string, direction nettestlabv1.
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Remove from active conditions
+	// Remove from active conditions and applied profiles
 	delete(c.activeConditions, iface)
+	delete(c.appliedProfiles, iface)
 
 	return nil
 }
 
-// buildLatencyCommand creates tc commands for latency
+// buildCombinedNetworkCommand creates a single tc netem command with all conditions combined
+func (c *Controller) buildCombinedNetworkCommand(iface string, conditions *nettestlabv1.NetworkConditions, direction nettestlabv1.TrafficDirection) []string {
+	// Start with base netem command
+	cmd := []string{"tc", "qdisc", "add", "dev", iface, "root", "handle", "1:", "netem"}
+
+	hasNetemParams := false
+
+	// Add delay if specified
+	if conditions.Latency != nil && conditions.Latency.Enabled {
+		delay := fmt.Sprintf("%dms", conditions.Latency.DelayMs)
+		cmd = append(cmd, "delay", delay)
+		hasNetemParams = true
+	}
+
+	// Add jitter if specified (requires delay to be set first)
+	if conditions.Jitter != nil && conditions.Jitter.Enabled {
+		if conditions.Latency == nil || !conditions.Latency.Enabled {
+			// Add 0ms delay first if no latency but jitter is specified
+			cmd = append(cmd, "delay", "0ms")
+		}
+		variation := fmt.Sprintf("%dms", conditions.Jitter.VariationMs)
+		cmd = append(cmd, variation)
+		hasNetemParams = true
+	}
+
+	// Add packet loss if specified
+	if conditions.PacketLoss != nil && conditions.PacketLoss.Enabled {
+		loss := fmt.Sprintf("%.2f%%", conditions.PacketLoss.Percentage)
+		cmd = append(cmd, "loss", loss)
+		hasNetemParams = true
+	}
+
+	// Add corruption if specified
+	if conditions.Corruption != nil && conditions.Corruption.Enabled {
+		corrupt := fmt.Sprintf("%.2f%%", conditions.Corruption.Percentage)
+		cmd = append(cmd, "corrupt", corrupt)
+		hasNetemParams = true
+	}
+
+	// Add rate limiting if specified (netem supports rate parameter)
+	if conditions.Bandwidth != nil && conditions.Bandwidth.Enabled {
+		downloadRate := formatBandwidth(conditions.Bandwidth.DownloadBps)
+		cmd = append(cmd, "rate", downloadRate)
+		hasNetemParams = true
+	}
+
+	// Return empty slice if no netem parameters were added
+	if !hasNetemParams {
+		return []string{}
+	}
+
+	return cmd
+}
+
+// buildLatencyCommand creates tc commands for latency (deprecated - use buildCombinedNetworkCommand)
 func (c *Controller) buildLatencyCommand(iface string, config *nettestlabv1.LatencyConfig, direction nettestlabv1.TrafficDirection) [][]string {
 	delay := fmt.Sprintf("%dms", config.DelayMs)
 
@@ -376,15 +501,16 @@ func parseIfconfigOutput(output string) map[string]*InterfaceInfo {
 
 	var currentInterface *InterfaceInfo
 	for _, line := range lines {
-		line = strings.TrimSpace(line)
+		trimmedLine := strings.TrimSpace(line)
 
 		// New interface starts with interface name followed by ':'
+		// Example: "en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500"
 		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") && strings.Contains(line, ":") {
-			parts := strings.Split(line, ":")
-			if len(parts) > 0 {
-				name := parts[0]
+			colonIndex := strings.Index(line, ":")
+			if colonIndex > 0 {
+				name := strings.TrimSpace(line[:colonIndex])
 				interfaceType := determineInterfaceType(name)
-				isUp := strings.Contains(line, "UP")
+				isUp := strings.Contains(strings.ToUpper(line), "UP")
 
 				currentInterface = &InterfaceInfo{
 					Name:        name,
@@ -394,12 +520,34 @@ func parseIfconfigOutput(output string) map[string]*InterfaceInfo {
 				}
 				interfaces[name] = currentInterface
 			}
-		} else if currentInterface != nil && strings.HasPrefix(line, "inet ") {
-			// Extract IP address
-			parts := strings.Fields(line)
-			if len(parts) >= 2 {
-				ip := parts[1]
-				currentInterface.IPAddresses = append(currentInterface.IPAddresses, ip)
+		} else if currentInterface != nil {
+			// Parse IP addresses from inet lines
+			if strings.HasPrefix(trimmedLine, "inet ") {
+				// Extract IP address
+				parts := strings.Fields(trimmedLine)
+				if len(parts) >= 2 {
+					ip := parts[1]
+					// Remove any netmask info if present (e.g., "192.168.1.1/24" -> "192.168.1.1")
+					if slashIndex := strings.Index(ip, "/"); slashIndex != -1 {
+						ip = ip[:slashIndex]
+					}
+					currentInterface.IPAddresses = append(currentInterface.IPAddresses, ip)
+				}
+			}
+			// Also parse inet6 addresses if needed
+			if strings.HasPrefix(trimmedLine, "inet6 ") {
+				parts := strings.Fields(trimmedLine)
+				if len(parts) >= 2 {
+					ip := parts[1]
+					// Remove any prefix length info if present
+					if slashIndex := strings.Index(ip, "/"); slashIndex != -1 {
+						ip = ip[:slashIndex]
+					}
+					// Only add non-link-local IPv6 addresses for readability
+					if !strings.HasPrefix(ip, "fe80:") {
+						currentInterface.IPAddresses = append(currentInterface.IPAddresses, ip)
+					}
+				}
 			}
 		}
 	}
@@ -443,13 +591,28 @@ func parseInterfaceList(output string) map[string]*InterfaceInfo {
 func determineInterfaceType(name string) nettestlabv1.InterfaceType {
 	switch {
 	case strings.HasPrefix(name, "eth"), strings.HasPrefix(name, "en"):
+		// Check if it's actually wireless (common on macOS)
+		if strings.HasPrefix(name, "en1") || strings.HasPrefix(name, "en2") {
+			// These are often wireless on macOS, but we'll default to ethernet
+			// Real detection would require additional system calls
+			return nettestlabv1.InterfaceType_INTERFACE_TYPE_ETHERNET
+		}
 		return nettestlabv1.InterfaceType_INTERFACE_TYPE_ETHERNET
 	case strings.HasPrefix(name, "wlan"), strings.HasPrefix(name, "wifi"), strings.HasPrefix(name, "wl"):
 		return nettestlabv1.InterfaceType_INTERFACE_TYPE_WIRELESS
+	case strings.HasPrefix(name, "awdl"):
+		// Apple Wireless Direct Link (AirDrop, etc.)
+		return nettestlabv1.InterfaceType_INTERFACE_TYPE_WIRELESS
 	case strings.HasPrefix(name, "lo"):
 		return nettestlabv1.InterfaceType_INTERFACE_TYPE_LOOPBACK
-	case strings.HasPrefix(name, "br"):
+	case strings.HasPrefix(name, "br"), strings.HasPrefix(name, "bridge"):
 		return nettestlabv1.InterfaceType_INTERFACE_TYPE_BRIDGE
+	case strings.HasPrefix(name, "utun"), strings.HasPrefix(name, "tun"), strings.HasPrefix(name, "tap"):
+		// VPN/tunnel interfaces
+		return nettestlabv1.InterfaceType_INTERFACE_TYPE_UNSPECIFIED
+	case strings.HasPrefix(name, "llw"), strings.HasPrefix(name, "ap"):
+		// Low Latency WLAN, Access Point interfaces
+		return nettestlabv1.InterfaceType_INTERFACE_TYPE_WIRELESS
 	default:
 		return nettestlabv1.InterfaceType_INTERFACE_TYPE_UNSPECIFIED
 	}
@@ -527,4 +690,64 @@ func (c *Controller) findWiFiInterfacesUnsafe() ([]string, error) {
 	}
 
 	return wifiInterfaces, nil
+}
+
+// GetInterfaceMetrics returns interface metrics (fake data on non-router systems)
+func (c *Controller) GetInterfaceMetrics(iface string) *nettestlabv1.InterfaceMetrics {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// Use fake data on non-router systems
+	if !c.envDetector.IsRouter() {
+		return c.envDetector.GetFakeInterfaceMetrics(iface)
+	}
+
+	// Real implementation would read from /proc/net/dev or similar
+	// For now, return placeholder data for router systems
+	return &nettestlabv1.InterfaceMetrics{
+		Interface:          iface,
+		BytesReceived:      1000000,
+		BytesTransmitted:   500000,
+		PacketsReceived:    1000,
+		PacketsTransmitted: 500,
+		Bandwidth: &nettestlabv1.BandwidthUtilization{
+			RxBps:              100000,
+			TxBps:              50000,
+			UtilizationPercent: 10.5,
+		},
+	}
+}
+
+// GetTrafficStats returns traffic statistics (fake data on non-router systems)
+func (c *Controller) GetTrafficStats(iface string) *nettestlabv1.TrafficStats {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// Use fake data on non-router systems
+	if stats, isFake := c.envDetector.GetFakeTrafficStats(iface); isFake {
+		return stats
+	}
+
+	// Real implementation would calculate actual traffic stats
+	return &nettestlabv1.TrafficStats{
+		TotalBytes:      1000000, // Placeholder for real implementation
+		TotalPackets:    10000,   // Placeholder for real implementation
+		AffectedPackets: 500,     // Placeholder for real implementation
+		AvgLatencyMs:    10.5,    // Placeholder for real implementation
+		LossRate:        0.1,     // Placeholder for real implementation
+	}
+}
+
+// IsRouter returns whether the system is detected as a router
+func (c *Controller) IsRouter() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.envDetector.IsRouter()
+}
+
+// GetFakeSystemMetrics returns fake system metrics for non-router systems
+func (c *Controller) GetFakeSystemMetrics() (*nettestlabv1.SystemMetrics, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.envDetector.GetFakeSystemMetrics()
 }

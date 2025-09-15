@@ -1,46 +1,120 @@
 /**
- * NetTestLab Web Application
- * Main application logic and UI management
+ * NetTestLab Web Application using Connect protocol
  */
+
+// Import the Connect client
+import { NetTestLabConnectClient } from './connect-client.js';
 
 class NetTestLabApp {
     constructor() {
-        this.api = window.netTestLabAPI;
-        this.currentTab = 'dashboard';
-        this.refreshInterval = null;
-        this.profiles = [];
-        this.interfaces = [];
-        this.clients = [];
+        this.connectClient = new NetTestLabConnectClient();
+        this.checkAndRedirectFromGenericHost();
+    }
+
+    checkAndRedirectFromGenericHost() {
+        const currentHost = window.location.hostname;
+        const currentPort = window.location.port;
         
-        this.init();
+        // Check if we're accessing via 0.0.0.0
+        if (currentHost === '0.0.0.0') {
+            console.log('Detected access via 0.0.0.0, attempting to redirect to local IP...');
+            this.redirectToLocalIP(currentPort);
+        }
+    }
+
+    async redirectToLocalIP(port) {
+        try {
+            // Try to get the local IP from the API first
+            const systemStatus = await this.connectClient.getSystemStatus();
+            let localIP = null;
+
+            // Extract IP from interfaces
+            if (systemStatus.interfaces && systemStatus.interfaces.length > 0) {
+                for (const iface of systemStatus.interfaces) {
+                    if (iface.ipAddresses && iface.ipAddresses.length > 0 && iface.isUp) {
+                        // Prefer non-loopback interfaces
+                        if (iface.type !== 'INTERFACE_TYPE_LOOPBACK') {
+                            localIP = iface.ipAddresses[0];
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (localIP) {
+                const newUrl = `http://${localIP}:${port}${window.location.pathname}${window.location.search}${window.location.hash}`;
+                console.log(`Redirecting to: ${newUrl}`);
+                window.location.replace(newUrl);
+                return;
+            }
+        } catch (error) {
+            console.warn('Could not get system status for IP detection:', error);
+        }
+
+        // Fallback: try common local IP ranges
+        this.tryCommonLocalIPs(port);
+    }
+
+    async tryCommonLocalIPs(port) {
+        const commonIPs = [
+            '192.168.1.1',
+            '192.168.0.1',
+            '10.0.0.1',
+            '172.16.0.1'
+        ];
+
+        for (const ip of commonIPs) {
+            try {
+                const testUrl = `http://${ip}:${port}/nettestlab.v1.MonitoringService/GetHealth`;
+                const response = await fetch(testUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({}),
+                    timeout: 3000
+                });
+
+                if (response.ok) {
+                    const newUrl = `http://${ip}:${port}${window.location.pathname}${window.location.search}${window.location.hash}`;
+                    console.log(`Found working IP, redirecting to: ${newUrl}`);
+                    window.location.replace(newUrl);
+                    return;
+                }
+            } catch (error) {
+                console.log(`IP ${ip} not reachable:`, error.message);
+            }
+        }
+
+        console.warn('Could not find a working local IP. Staying on 0.0.0.0');
+        this.showNotification('Using 0.0.0.0 - could not detect local IP automatically', 'warning');
     }
 
     async init() {
-        console.log('Initializing NetTestLab Web Interface...');
+        console.log('🚀 Initializing NetTestLab Web Interface...');
         
         // Set up event listeners
         this.setupEventListeners();
         
-        // Load initial data
+        // Load initial dashboard data
         await this.loadDashboardData();
         
-        // Start auto-refresh
-        this.startAutoRefresh();
-        
-        console.log('NetTestLab Web Interface initialized');
+        console.log('✅ NetTestLab Web Interface initialized');
     }
 
     setupEventListeners() {
-        // Profile type change handler
-        document.getElementById('profileType').addEventListener('change', (e) => {
-            this.onProfileTypeChange(e.target.value);
-        });
-
-        // Form submission handlers
-        document.getElementById('profileForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.saveProfile();
-        });
+        // Global functions for buttons - ensure they're on window object
+        window.showTab = this.showTab.bind(this);
+        window.refreshStatus = this.refreshStatus.bind(this);
+        window.loadInterfaces = this.loadInterfaces.bind(this);
+        window.loadProfiles = this.loadProfiles.bind(this);
+        window.createProfile = this.createProfile.bind(this);
+        window.editProfile = this.editProfile.bind(this);
+        window.deleteProfile = this.deleteProfile.bind(this);
+        window.applyProfileToInterface = this.applyProfileToInterface.bind(this);
+        window.showProfileModal = this.showProfileModal.bind(this);
+        window.saveProfile = this.saveProfile.bind(this);
+        window.resetInterfaceConditions = this.resetInterfaceConditions.bind(this);
+        
+        console.log('✅ Global functions assigned to window object');
     }
 
     // Tab Management
@@ -50,597 +124,908 @@ class NetTestLabApp {
             tab.style.display = 'none';
         });
 
+        // Remove active class from all nav links
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.classList.remove('active');
+        });
+
         // Show selected tab
         const targetTab = document.getElementById(`${tabName}-tab`);
         if (targetTab) {
             targetTab.style.display = 'block';
         }
 
-        // Update navigation
-        document.querySelectorAll('.navbar-nav .nav-link').forEach(link => {
-            link.classList.remove('active');
-        });
-        
-        event.target.classList.add('active');
+        // Add active class to selected nav link
+        const activeLink = document.querySelector(`[onclick="showTab('${tabName}')"]`);
+        if (activeLink) {
+            activeLink.classList.add('active');
+        }
+
         this.currentTab = tabName;
 
-        // Load tab-specific data
-        this.loadTabData(tabName);
-    }
-
-    async loadTabData(tabName) {
-        switch (tabName) {
-            case 'dashboard':
-                await this.loadDashboardData();
-                break;
-            case 'interfaces':
-                await this.loadInterfacesData();
-                break;
-            case 'clients':
-                await this.loadClientsData();
-                break;
-            case 'profiles':
-                await this.loadProfilesData();
-                break;
+        // Auto-load data when switching tabs
+        if (tabName === 'interfaces') {
+            this.loadInterfaces();
+        } else if (tabName === 'profiles') {
+            this.loadProfiles();
         }
     }
 
-    // Dashboard Functions
+    async refreshStatus() {
+        await this.loadDashboardData();
+        this.showNotification('Status refreshed', 'success');
+    }
+
+    // gRPC Functions using the gRPC client and ES modules
+    async loadInterfaces() {
+        try {
+            this.showLoadingInElement('interfacesList', 'Loading interfaces via gRPC...');
+            
+            const systemStatus = await this.connectClient.getSystemStatus();
+            const profiles = await this.connectClient.listProfiles();
+            
+            let html = '<div class="row">';
+            
+            if (systemStatus.interfaces && systemStatus.interfaces.length > 0) {
+                // Sort interfaces with the new logic
+                const sortedInterfaces = this.sortInterfaces([...systemStatus.interfaces]);
+                
+                sortedInterfaces.forEach(iface => {
+                    const interfaceTypeText = this.getInterfaceTypeText(iface.type);
+                    const interfaceIcon = this.getInterfaceIcon(iface.type);
+                    const statusBadge = iface.isUp ? 
+                        '<span class="badge bg-success">UP</span>' : 
+                        '<span class="badge bg-danger">DOWN</span>';
+                    
+                    // Show applied profile or no conditions
+                    let conditionsBadge;
+                    if (iface.appliedProfile && iface.appliedProfile.trim() !== '') {
+                        conditionsBadge = `<span class="badge bg-success">Profile: ${iface.appliedProfile}</span>`;
+                    } else if (iface.hasConditions) {
+                        conditionsBadge = '<span class="badge bg-warning">Custom Conditions</span>';
+                    } else {
+                        conditionsBadge = '<span class="badge bg-secondary">No Conditions</span>';
+                    }
+                    
+                    html += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0">
+                                        <i class="bi ${interfaceIcon} me-2"></i>${iface.name}
+                                    </h6>
+                                    ${statusBadge}
+                                </div>
+                                <div class="card-body">
+                                    <p class="card-text">
+                                        <small class="text-muted">Type:</small> ${interfaceTypeText}<br>
+                                        <small class="text-muted">IPs:</small> ${iface.ipAddresses ? iface.ipAddresses.join(', ') : 'None'}<br>
+                                        ${conditionsBadge}
+                                    </p>
+                                    <div class="mt-3">
+                                        <select class="form-select form-select-sm mb-2" id="profile-select-${iface.name}">
+                                            <option value="">Select a profile to apply...</option>
+                                            ${profiles.profiles ? profiles.profiles.map(p => 
+                                                `<option value="${p.name}">${p.displayName || p.name}</option>`
+                                            ).join('') : ''}
+                                        </select>
+                                        <button class="btn btn-sm btn-primary" onclick="applyProfileToInterface('${iface.name}')">
+                                            <i class="bi bi-play-circle"></i> Apply Profile
+                                        </button>
+                                        ${iface.hasConditions ? `
+                                            <button class="btn btn-sm btn-outline-danger ms-1" onclick="resetInterfaceConditions('${iface.name}')">
+                                                <i class="bi bi-x-circle"></i> Reset
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+            } else {
+                html += '<div class="col-12"><div class="alert alert-info">No interfaces returned from gRPC call.</div></div>';
+            }
+            
+            html += '</div>';
+            document.getElementById('interfacesList').innerHTML = html;
+            
+        } catch (error) {
+            console.error('Failed to load interfaces:', error);
+            document.getElementById('interfacesList').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>gRPC Error:</strong> ${error.message}
+                    <br><small>This is expected if gRPC-Web proxy is not configured.</small>
+                </div>
+            `;
+        }
+    }
+
+    async loadProfiles() {
+        try {
+            this.showLoadingInElement('profilesList', 'Loading profiles via gRPC...');
+            
+            const profiles = await this.connectClient.listProfiles();
+            
+            let html = `
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <button class="btn btn-primary" onclick="showProfileModal()">
+                        <i class="bi bi-plus-circle"></i> Create Profile
+                    </button>
+                </div>
+            `;
+            html += '<div class="row">';
+            
+            if (profiles.profiles && profiles.profiles.length > 0) {
+                profiles.profiles.forEach(profile => {
+                    const profileTypeText = this.getProfileTypeText(profile.type);
+                    const profileIcon = this.getProfileIcon(profile.type);
+                    const isBuiltIn = profile.builtIn;
+                    const tags = profile.tags ? profile.tags.join(', ') : 'No tags';
+                    const conditions = this.formatNetworkConditions(profile.conditions);
+                    
+                    html += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0">
+                                        <i class="bi ${profileIcon} me-2"></i>${profile.displayName || profile.name}
+                                    </h6>
+                                    <div>
+                                        ${isBuiltIn ? '<span class="badge bg-info">Built-in</span>' : '<span class="badge bg-secondary">Custom</span>'}
+                                        <span class="badge bg-light text-dark ms-1">${profileTypeText}</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <p class="card-text">
+                                        ${profile.description || 'No description'}
+                                    </p>
+                                    <div class="small text-muted mb-2">
+                                        <strong>Conditions:</strong><br>
+                                        ${conditions}
+                                    </div>
+                                    <div class="small text-muted mb-3">
+                                        <strong>Tags:</strong> ${tags}
+                                    </div>
+                                    <div class="btn-group w-100" role="group">
+                                        <button class="btn btn-sm btn-outline-primary" onclick="editProfile('${profile.name}')">
+                                            <i class="bi bi-pencil"></i> ${isBuiltIn ? 'View' : 'Edit'}
+                                        </button>
+                                        ${!isBuiltIn ? `
+                                            <button class="btn btn-sm btn-outline-danger" onclick="deleteProfile('${profile.name}')">
+                                                <i class="bi bi-trash"></i> Delete
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+            } else {
+                html += '<div class="col-12"><div class="alert alert-info">No profiles returned from gRPC call.</div></div>';
+            }
+            
+            html += '</div>';
+            document.getElementById('profilesList').innerHTML = html;
+            
+        } catch (error) {
+            console.error('Failed to load profiles:', error);
+            document.getElementById('profilesList').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>gRPC Error:</strong> ${error.message}
+                    <br><small>This is expected if gRPC-Web proxy is not configured.</small>
+                </div>
+            `;
+        }
+    }
+
+    // Dashboard Data Loading
     async loadDashboardData() {
         try {
             this.updateConnectionStatus('connecting');
             
-            // Load system status
-            const systemStatus = await this.api.getSystemStatus();
-            this.updateSystemStatus(systemStatus);
+            // Test gRPC services directly
+            try {
+                const health = await this.connectClient.getHealth();
+                console.log('✅ Health service:', health);
+                
+                // Update UI with real health data
+                document.getElementById('serviceName').textContent = 'NetTestLab';
+                
+                // Convert gRPC health status to human-readable format
+                const healthStatus = this.formatHealthStatus(health.status);
+                document.getElementById('serviceStatus').textContent = healthStatus;
+                document.getElementById('serviceStatus').className = `fw-bold ${this.getHealthStatusClass(health.status)}`;
+                
+                // Get system status for device information
+                try {
+                    const systemStatus = await this.connectClient.getSystemStatus();
+                    
+                    // Add device IP and model information
+                    const deviceInfo = this.extractDeviceInfo(systemStatus);
+                    this.updateDeviceInfo(deviceInfo);
+                    
+                } catch (systemError) {
+                    console.log('⚠️ System status not available:', systemError);
+                }
+                
+            } catch (healthError) {
+                console.log('⚠️ Health service not available:', healthError);
+                document.getElementById('serviceStatus').textContent = 'Unavailable';
+                document.getElementById('serviceStatus').className = 'fw-bold text-warning';
+            }
             
-            // Load quick stats
-            await this.updateQuickStats();
+            // Set version from app
+            document.getElementById('serviceVersion').textContent = '1.0.0';
             
-            // Load recent activity
-            const activity = await this.api.getRecentActivity();
-            this.updateRecentActivity(activity);
-            
+            // Update connection status to show Connect client works
             this.updateConnectionStatus('connected');
+            this.showNotification('Services loaded successfully!', 'success');
+            
         } catch (error) {
             console.error('Failed to load dashboard data:', error);
             this.updateConnectionStatus('disconnected');
-            this.showError('Failed to load dashboard data');
+            this.showNotification('Failed to connect to services', 'error');
         }
     }
 
-    updateSystemStatus(status) {
-        document.getElementById('serverVersion').textContent = status.serverVersion;
-        document.getElementById('uptime').textContent = status.uptime;
-        document.getElementById('systemLoad').textContent = status.systemLoad;
-        document.getElementById('memoryUsage').textContent = status.memoryUsage;
-    }
-
-    async updateQuickStats() {
-        try {
-            const [interfaces, clients, profiles] = await Promise.all([
-                this.api.getNetworkInterfaces(),
-                this.api.getConnectedClients(),
-                this.api.getNetworkProfiles()
-            ]);
-
-            const activeInterfaces = interfaces.filter(iface => iface.status === 'up').length;
-            const connectedClients = clients.filter(client => client.status === 'online').length;
-            const activeProfiles = profiles.filter(profile => profile.active).length;
-
-            document.getElementById('activeInterfaces').textContent = activeInterfaces;
-            document.getElementById('connectedClients').textContent = connectedClients;
-            document.getElementById('activeProfiles').textContent = activeProfiles;
-            document.getElementById('totalProfiles').textContent = profiles.length;
-        } catch (error) {
-            console.error('Failed to update quick stats:', error);
-        }
-    }
-
-    updateRecentActivity(activities) {
-        const container = document.getElementById('recentActivity');
-        
-        if (!activities || activities.length === 0) {
-            container.innerHTML = '<p class="text-muted text-center">No recent activity</p>';
-            return;
-        }
-
-        const activityHtml = activities.map(activity => `
-            <div class="activity-item d-flex align-items-start">
-                <div class="activity-icon activity-${activity.type}">
-                    <i class="${activity.icon}"></i>
-                </div>
-                <div class="flex-grow-1">
-                    <div class="activity-message">${activity.message}</div>
-                    <div class="activity-time">${this.api.formatTimeAgo(activity.timestamp)}</div>
-                </div>
-            </div>
-        `).join('');
-
-        container.innerHTML = activityHtml;
-    }
-
-    // Interfaces Functions
-    async loadInterfacesData() {
-        try {
-            this.showLoading('interfacesList');
-            
-            this.interfaces = await this.api.getNetworkInterfaces();
-            this.renderInterfaces();
-        } catch (error) {
-            console.error('Failed to load interfaces:', error);
-            this.showError('Failed to load network interfaces');
-        }
-    }
-
-    renderInterfaces() {
-        const container = document.getElementById('interfacesList');
-        
-        if (!this.interfaces || this.interfaces.length === 0) {
-            container.innerHTML = '<p class="text-muted text-center">No network interfaces found</p>';
-            return;
-        }
-
-        const interfacesHtml = this.interfaces.map(iface => `
-            <div class="col-md-6 col-lg-4 mb-3">
-                <div class="card interface-card ${iface.type.toLowerCase()} ${iface.status === 'down' ? 'disabled' : ''}">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <h6 class="card-title mb-0">
-                                <i class="bi bi-${this.getInterfaceIcon(iface.type)}"></i>
-                                ${iface.name}
-                            </h6>
-                            <span class="interface-status status-${iface.status}">
-                                ${iface.status.toUpperCase()}
-                            </span>
-                        </div>
-                        <div class="mb-2">
-                            <small class="text-muted">Type:</small>
-                            <span class="fw-bold">${iface.type}</span>
-                        </div>
-                        <div class="mb-2">
-                            <small class="text-muted">IP Addresses:</small>
-                            <div>${iface.ipAddresses.length > 0 ? iface.ipAddresses.join(', ') : 'None'}</div>
-                        </div>
-                        ${iface.currentConditions ? `
-                            <div class="mb-2">
-                                <small class="text-muted">Active Profile:</small>
-                                <div class="fw-bold text-primary">${iface.currentConditions.profile}</div>
-                                <small class="text-muted">
-                                    ${iface.currentConditions.latency} | 
-                                    ${iface.currentConditions.packetLoss} | 
-                                    ${iface.currentConditions.bandwidth}
-                                </small>
-                            </div>
-                            <button class="btn btn-outline-danger btn-sm" onclick="app.removeProfileFromInterface('${iface.name}')">
-                                <i class="bi bi-x-circle"></i> Remove Profile
-                            </button>
-                        ` : `
-                            <button class="btn btn-outline-primary btn-sm" onclick="app.showApplyProfileModal('${iface.name}')">
-                                <i class="bi bi-plus-circle"></i> Apply Profile
-                            </button>
-                        `}
-                    </div>
-                </div>
-            </div>
-        `).join('');
-
-        container.innerHTML = interfacesHtml;
-    }
-
-    getInterfaceIcon(type) {
-        switch (type.toLowerCase()) {
-            case 'wifi': return 'wifi';
-            case 'ethernet': return 'ethernet';
-            case 'bridge': return 'diagram-3';
-            default: return 'hdd-network';
-        }
-    }
-
-    async refreshInterfaces() {
-        await this.loadInterfacesData();
-        this.showSuccess('Interfaces refreshed');
-    }
-
-    // Clients Functions
-    async loadClientsData() {
-        try {
-            this.showLoading('clientsTableBody');
-            
-            this.clients = await this.api.getConnectedClients();
-            this.renderClients();
-        } catch (error) {
-            console.error('Failed to load clients:', error);
-            this.showError('Failed to load connected clients');
-        }
-    }
-
-    renderClients() {
-        const tbody = document.getElementById('clientsTableBody');
-        
-        if (!this.clients || this.clients.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No connected clients</td></tr>';
-            return;
-        }
-
-        const clientsHtml = this.clients.map(client => `
-            <tr>
-                <td>
-                    <strong>${client.ipAddress}</strong>
-                    <br>
-                    <small class="text-muted">${client.macAddress}</small>
-                </td>
-                <td>${client.deviceName}</td>
-                <td>
-                    <span class="badge bg-secondary">${client.interface}</span>
-                </td>
-                <td>
-                    ${this.api.formatTimeAgo(client.connectionTime)}
-                    <br>
-                    <small class="text-muted">${client.bandwidth}</small>
-                </td>
-                <td>
-                    <span class="client-status client-${client.status}">
-                        ${client.status.toUpperCase()}
-                    </span>
-                </td>
-            </tr>
-        `).join('');
-
-        tbody.innerHTML = clientsHtml;
-    }
-
-    async refreshClients() {
-        await this.loadClientsData();
-        this.showSuccess('Connected clients refreshed');
-    }
-
-    // Profiles Functions
-    async loadProfilesData() {
-        try {
-            this.showLoading('profilesList');
-            
-            this.profiles = await this.api.getNetworkProfiles();
-            this.renderProfiles();
-        } catch (error) {
-            console.error('Failed to load profiles:', error);
-            this.showError('Failed to load network profiles');
-        }
-    }
-
-    renderProfiles() {
-        const container = document.getElementById('profilesList');
-        
-        if (!this.profiles || this.profiles.length === 0) {
-            container.innerHTML = '<p class="text-muted text-center">No network profiles found</p>';
-            return;
-        }
-
-        const profilesHtml = this.profiles.map(profile => `
-            <div class="col-md-6 col-lg-4 mb-3">
-                <div class="card profile-card ${profile.active ? 'active' : ''}">
-                    <div class="profile-header">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <h6 class="mb-1">${profile.name}</h6>
-                            <span class="profile-type-badge">${profile.type.toUpperCase()}</span>
-                        </div>
-                        <p class="mb-0" style="font-size: 0.875rem; opacity: 0.9;">
-                            ${profile.description}
-                        </p>
-                    </div>
-                    <div class="card-body">
-                        <div class="row mb-2">
-                            <div class="col-6">
-                                <small class="text-muted">Latency</small>
-                                <div class="fw-bold">${profile.conditions.latency}ms</div>
-                            </div>
-                            <div class="col-6">
-                                <small class="text-muted">Packet Loss</small>
-                                <div class="fw-bold">${profile.conditions.packetLoss}%</div>
-                            </div>
-                        </div>
-                        <div class="row mb-3">
-                            <div class="col-6">
-                                <small class="text-muted">Download</small>
-                                <div class="fw-bold">${this.api.formatBandwidth(profile.conditions.downloadBandwidth)}</div>
-                            </div>
-                            <div class="col-6">
-                                <small class="text-muted">Upload</small>
-                                <div class="fw-bold">${this.api.formatBandwidth(profile.conditions.uploadBandwidth)}</div>
-                            </div>
-                        </div>
-                        <div class="btn-group w-100" role="group">
-                            <button class="btn btn-outline-primary btn-sm" onclick="app.editProfile('${profile.id}')">
-                                <i class="bi bi-pencil"></i> Edit
-                            </button>
-                            <button class="btn btn-outline-success btn-sm" onclick="app.showApplyProfileModalById('${profile.id}')">
-                                <i class="bi bi-play"></i> Apply
-                            </button>
-                            <button class="btn btn-outline-danger btn-sm" onclick="app.deleteProfile('${profile.id}')">
-                                <i class="bi bi-trash"></i> Delete
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `).join('');
-
-        container.innerHTML = profilesHtml;
-    }
-
-    // Profile Management
-    showCreateProfileModal() {
-        document.getElementById('profileModalTitle').textContent = 'Create Network Profile';
-        document.getElementById('profileForm').reset();
-        document.getElementById('profileId').value = '';
-        
-        const modal = new bootstrap.Modal(document.getElementById('profileModal'));
-        modal.show();
-    }
-
-    editProfile(profileId) {
-        const profile = this.profiles.find(p => p.id === profileId);
-        if (!profile) {
-            this.showError('Profile not found');
-            return;
-        }
-
-        document.getElementById('profileModalTitle').textContent = 'Edit Network Profile';
-        document.getElementById('profileId').value = profile.id;
-        document.getElementById('profileName').value = profile.name;
-        document.getElementById('profileType').value = profile.type;
-        document.getElementById('latency').value = profile.conditions.latency;
-        document.getElementById('packetLoss').value = profile.conditions.packetLoss;
-        document.getElementById('downloadBandwidth').value = profile.conditions.downloadBandwidth;
-        document.getElementById('uploadBandwidth').value = profile.conditions.uploadBandwidth;
-        document.getElementById('profileDescription').value = profile.description;
-
-        const modal = new bootstrap.Modal(document.getElementById('profileModal'));
-        modal.show();
-    }
-
-    async saveProfile() {
-        try {
-            const formData = new FormData(document.getElementById('profileForm'));
-            const profileId = document.getElementById('profileId').value;
-            
-            const profile = {
-                name: document.getElementById('profileName').value,
-                type: document.getElementById('profileType').value,
-                description: document.getElementById('profileDescription').value,
-                conditions: {
-                    latency: parseInt(document.getElementById('latency').value) || 0,
-                    packetLoss: parseFloat(document.getElementById('packetLoss').value) || 0,
-                    downloadBandwidth: parseInt(document.getElementById('downloadBandwidth').value) || 0,
-                    uploadBandwidth: parseInt(document.getElementById('uploadBandwidth').value) || 0
-                }
-            };
-
-            if (profileId) {
-                await this.api.updateNetworkProfile(profileId, profile);
-                this.showSuccess('Profile updated successfully');
-            } else {
-                await this.api.createNetworkProfile(profile);
-                this.showSuccess('Profile created successfully');
-            }
-
-            const modal = bootstrap.Modal.getInstance(document.getElementById('profileModal'));
-            modal.hide();
-            
-            await this.loadProfilesData();
-        } catch (error) {
-            console.error('Failed to save profile:', error);
-            this.showError('Failed to save profile');
-        }
-    }
-
-    async deleteProfile(profileId) {
-        if (!confirm('Are you sure you want to delete this profile?')) {
-            return;
-        }
-
-        try {
-            await this.api.deleteNetworkProfile(profileId);
-            this.showSuccess('Profile deleted successfully');
-            await this.loadProfilesData();
-        } catch (error) {
-            console.error('Failed to delete profile:', error);
-            this.showError('Failed to delete profile');
-        }
-    }
-
-    onProfileTypeChange(type) {
-        // Set default values based on profile type
-        const defaults = {
-            '2g': { latency: 300, packetLoss: 5.0, download: 56, upload: 28 },
-            '3g': { latency: 150, packetLoss: 2.0, download: 384, upload: 128 },
-            '4g': { latency: 50, packetLoss: 0.5, download: 10000, upload: 5000 },
-            '5g': { latency: 10, packetLoss: 0.1, download: 100000, upload: 50000 },
-            'wifi': { latency: 20, packetLoss: 0.1, download: 50000, upload: 50000 },
-            'satellite': { latency: 600, packetLoss: 1.0, download: 1000, upload: 256 }
-        };
-
-        if (defaults[type]) {
-            document.getElementById('latency').value = defaults[type].latency;
-            document.getElementById('packetLoss').value = defaults[type].packetLoss;
-            document.getElementById('downloadBandwidth').value = defaults[type].download;
-            document.getElementById('uploadBandwidth').value = defaults[type].upload;
-        }
-    }
-
-    // Apply Profile to Interface
-    showApplyProfileModal(interfaceName) {
-        this.populateInterfaceSelect();
-        document.getElementById('targetInterface').value = interfaceName;
-        document.getElementById('selectedProfile').value = '';
-        
-        const modal = new bootstrap.Modal(document.getElementById('applyProfileModal'));
-        modal.show();
-    }
-
-    showApplyProfileModalById(profileId) {
-        const profile = this.profiles.find(p => p.id === profileId);
-        if (!profile) {
-            this.showError('Profile not found');
-            return;
-        }
-
-        this.populateInterfaceSelect();
-        document.getElementById('selectedProfile').value = profile.name;
-        document.getElementById('selectedProfile').dataset.profileId = profileId;
-        
-        const modal = new bootstrap.Modal(document.getElementById('applyProfileModal'));
-        modal.show();
-    }
-
-    populateInterfaceSelect() {
-        const select = document.getElementById('targetInterface');
-        select.innerHTML = this.interfaces.map(iface => 
-            `<option value="${iface.name}">${iface.name} (${iface.type})</option>`
-        ).join('');
-    }
-
-    async applyProfileToInterface() {
-        try {
-            const interfaceName = document.getElementById('targetInterface').value;
-            const profileId = document.getElementById('selectedProfile').dataset.profileId;
-
-            if (!profileId) {
-                this.showError('Please select a profile');
-                return;
-            }
-
-            await this.api.applyProfileToInterface(profileId, interfaceName);
-            this.showSuccess(`Profile applied to ${interfaceName}`);
-            
-            const modal = bootstrap.Modal.getInstance(document.getElementById('applyProfileModal'));
-            modal.hide();
-            
-            await this.loadInterfacesData();
-        } catch (error) {
-            console.error('Failed to apply profile:', error);
-            this.showError('Failed to apply profile to interface');
-        }
-    }
-
-    async removeProfileFromInterface(interfaceName) {
-        if (!confirm(`Remove profile from ${interfaceName}?`)) {
-            return;
-        }
-
-        try {
-            await this.api.removeProfileFromInterface(interfaceName);
-            this.showSuccess(`Profile removed from ${interfaceName}`);
-            await this.loadInterfacesData();
-        } catch (error) {
-            console.error('Failed to remove profile:', error);
-            this.showError('Failed to remove profile from interface');
-        }
-    }
-
-    // Utility Functions
+    // UI Helper Functions
     updateConnectionStatus(status) {
         const statusElement = document.getElementById('connectionStatus');
-        const iconClass = status === 'connected' ? 'bi-wifi' : 
-                         status === 'connecting' ? 'bi-arrow-repeat' : 'bi-wifi-off';
+        if (!statusElement) return;
+
+        statusElement.className = 'badge';
         
-        statusElement.className = `badge bg-${status === 'connected' ? 'success' : 
-                                                status === 'connecting' ? 'warning' : 'danger'}`;
-        statusElement.innerHTML = `<i class="${iconClass}"></i> ${status.charAt(0).toUpperCase() + status.slice(1)}`;
+        switch (status) {
+            case 'connected':
+                statusElement.classList.add('bg-success');
+                statusElement.innerHTML = '<i class="bi bi-wifi"></i> Connected';
+                break;
+            case 'connecting':
+                statusElement.classList.add('bg-warning');
+                statusElement.innerHTML = '<i class="bi bi-hourglass-split"></i> Connecting';
+                break;
+            case 'warning':
+                statusElement.classList.add('bg-warning');
+                statusElement.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Partial';
+                break;
+            case 'disconnected':
+                statusElement.classList.add('bg-danger');
+                statusElement.innerHTML = '<i class="bi bi-wifi-off"></i> Disconnected';
+                break;
+        }
     }
 
-    showLoading(containerId) {
-        const container = document.getElementById(containerId);
-        container.innerHTML = `
-            <div class="loading">
-                <div class="spinner-border" role="status">
+    showLoadingInElement(elementId, message = 'Loading...') {
+        document.getElementById(elementId).innerHTML = `
+            <div class="d-flex justify-content-center align-items-center p-4">
+                <div class="spinner-border spinner-border-sm me-2" role="status">
                     <span class="visually-hidden">Loading...</span>
                 </div>
+                ${message}
             </div>
         `;
     }
 
-    showSuccess(message) {
-        this.showToast(message, 'success');
+    showResults(title, data) {
+        document.getElementById('resultsModalTitle').textContent = title;
+        document.getElementById('resultsContent').textContent = JSON.stringify(data, null, 2);
+        
+        const modal = new bootstrap.Modal(document.getElementById('resultsModal'));
+        modal.show();
     }
 
-    showError(message) {
-        this.showToast(message, 'danger');
+    // Profile Management Functions
+    async createProfile() {
+        this.showProfileModal();
     }
 
-    showToast(message, type = 'info') {
-        // Create toast container if it doesn't exist
-        let toastContainer = document.getElementById('toastContainer');
-        if (!toastContainer) {
-            toastContainer = document.createElement('div');
-            toastContainer.id = 'toastContainer';
-            toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
-            toastContainer.style.zIndex = '9999';
-            document.body.appendChild(toastContainer);
+    async editProfile(profileName) {
+        try {
+            const profile = await this.connectClient.getProfile(profileName);
+            this.showProfileModal(profile.profile);
+        } catch (error) {
+            console.error('Failed to load profile for editing:', error);
+            this.showNotification(`Failed to load profile: ${error.message}`, 'error');
+        }
+    }
+
+    async deleteProfile(profileName) {
+        if (!confirm(`Are you sure you want to delete profile "${profileName}"?`)) {
+            return;
         }
 
-        // Create toast
-        const toastId = 'toast-' + Date.now();
-        const toastHtml = `
-            <div id="${toastId}" class="toast align-items-center text-bg-${type} border-0" role="alert">
-                <div class="d-flex">
-                    <div class="toast-body">${message}</div>
-                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        try {
+            const result = await this.connectClient.deleteProfile(profileName);
+            if (result.success) {
+                this.showNotification(`Profile "${profileName}" deleted successfully`, 'success');
+                await this.loadProfiles(); // Reload the list
+            } else {
+                this.showNotification(`Failed to delete profile: ${result.errorMessage}`, 'error');
+            }
+        } catch (error) {
+            console.error('Failed to delete profile:', error);
+            this.showNotification(`Failed to delete profile: ${error.message}`, 'error');
+        }
+    }
+
+    async applyProfileToInterface(interfaceName) {
+        const profileSelect = document.getElementById(`profile-select-${interfaceName}`);
+        const profileName = profileSelect.value;
+
+        if (!profileName) {
+            this.showNotification('Please select a profile first', 'warning');
+            return;
+        }
+
+        try {
+            const result = await this.connectClient.applyProfile(profileName, interfaceName);
+            if (result.success) {
+                this.showNotification(`Profile "${profileName}" applied to ${interfaceName}`, 'success');
+                await this.loadInterfaces(); // Reload to show updated status
+            } else {
+                this.showNotification(`Failed to apply profile: ${result.errorMessage}`, 'error');
+            }
+        } catch (error) {
+            console.error('Failed to apply profile:', error);
+            this.showNotification(`Failed to apply profile: ${error.message}`, 'error');
+        }
+    }
+
+    showProfileModal(profile = null) {
+        const isEdit = !!profile;
+        const modalTitle = isEdit ? (profile.builtIn ? 'View Profile' : 'Edit Profile') : 'Create New Profile';
+        const readonly = isEdit && profile.builtIn;
+
+        const profileTypeOptions = [
+            { value: 'PROFILE_TYPE_MOBILE', label: 'Mobile' },
+            { value: 'PROFILE_TYPE_WIFI', label: 'WiFi' },
+            { value: 'PROFILE_TYPE_SATELLITE', label: 'Satellite' },
+            { value: 'PROFILE_TYPE_CUSTOM', label: 'Custom' },
+            { value: 'PROFILE_TYPE_TESTING', label: 'Testing' }
+        ];
+
+        const modalHtml = `
+            <div class="modal fade" id="profileModal" tabindex="-1">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">${modalTitle}</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <form id="profileForm">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">
+                                                Profile Name
+                                                <button type="button" class="btn btn-link btn-sm p-0 ms-1" data-bs-toggle="tooltip" 
+                                                        title="Unique identifier for the profile. Used internally by the system.">
+                                                    <i class="bi bi-question-circle"></i>
+                                                </button>
+                                            </label>
+                                            <input type="text" class="form-control" id="profileName" 
+                                                value="${profile?.name || ''}" ${readonly || isEdit ? 'readonly' : ''} required>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">
+                                                Display Name
+                                                <button type="button" class="btn btn-link btn-sm p-0 ms-1" data-bs-toggle="tooltip" 
+                                                        title="Human-readable name shown in the interface. Can be changed anytime.">
+                                                    <i class="bi bi-question-circle"></i>
+                                                </button>
+                                            </label>
+                                            <input type="text" class="form-control" id="profileDisplayName" 
+                                                value="${profile?.displayName || ''}" ${readonly ? 'readonly' : ''}>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label">
+                                        Description
+                                        <button type="button" class="btn btn-link btn-sm p-0 ms-1" data-bs-toggle="tooltip" 
+                                                title="Brief description of what this profile simulates or its intended use case.">
+                                            <i class="bi bi-question-circle"></i>
+                                        </button>
+                                    </label>
+                                    <textarea class="form-control" id="profileDescription" rows="2" ${readonly ? 'readonly' : ''}>${profile?.description || ''}</textarea>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">
+                                                Profile Type
+                                                <button type="button" class="btn btn-link btn-sm p-0 ms-1" data-bs-toggle="tooltip" 
+                                                        title="Category of network condition this profile represents (Mobile, WiFi, Satellite, etc.).">
+                                                    <i class="bi bi-question-circle"></i>
+                                                </button>
+                                            </label>
+                                            <select class="form-select" id="profileType" ${readonly ? 'disabled' : ''}>
+                                                ${profileTypeOptions.map(opt => 
+                                                    `<option value="${opt.value}" ${profile?.type === opt.value ? 'selected' : ''}>${opt.label}</option>`
+                                                ).join('')}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">
+                                                Tags (comma-separated)
+                                                <button type="button" class="btn btn-link btn-sm p-0 ms-1" data-bs-toggle="tooltip" 
+                                                        title="Keywords for organizing and searching profiles. Example: mobile, slow, testing">
+                                                    <i class="bi bi-question-circle"></i>
+                                                </button>
+                                            </label>
+                                            <input type="text" class="form-control" id="profileTags" 
+                                                value="${profile?.tags ? profile.tags.join(', ') : ''}" ${readonly ? 'readonly' : ''}>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <h6 class="border-bottom pb-2">Network Conditions</h6>
+                                
+                                <!-- Latency -->
+                                <div class="card mb-3">
+                                    <div class="card-header">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="latencyEnabled" 
+                                                ${profile?.conditions?.latency?.enabled ? 'checked' : ''} ${readonly ? 'disabled' : ''}>
+                                            <label class="form-check-label">
+                                                Latency
+                                                <button type="button" class="btn btn-link btn-sm p-0 ms-1" data-bs-toggle="tooltip" 
+                                                        title="Network delay - time it takes for data to travel from source to destination. Higher values simulate slower networks.">
+                                                    <i class="bi bi-question-circle"></i>
+                                                </button>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="mb-3">
+                                            <label class="form-label">Delay (ms)</label>
+                                            <input type="number" class="form-control" id="latencyDelay" 
+                                                value="${profile?.conditions?.latency?.delayMs || 0}" ${readonly ? 'readonly' : ''}>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Packet Loss -->
+                                <div class="card mb-3">
+                                    <div class="card-header">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="packetLossEnabled" 
+                                                ${profile?.conditions?.packetLoss?.enabled ? 'checked' : ''} ${readonly ? 'disabled' : ''}>
+                                            <label class="form-check-label">
+                                                Packet Loss
+                                                <button type="button" class="btn btn-link btn-sm p-0 ms-1" data-bs-toggle="tooltip" 
+                                                        title="Percentage of data packets that get lost during transmission. Common in wireless and congested networks.">
+                                                    <i class="bi bi-question-circle"></i>
+                                                </button>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="mb-3">
+                                            <label class="form-label">Percentage (%)</label>
+                                            <input type="number" class="form-control" id="packetLossPercentage" 
+                                                step="0.1" min="0" max="100" value="${profile?.conditions?.packetLoss?.percentage || 0}" ${readonly ? 'readonly' : ''}>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Bandwidth -->
+                                <div class="card mb-3">
+                                    <div class="card-header">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="bandwidthEnabled" 
+                                                ${profile?.conditions?.bandwidth?.enabled ? 'checked' : ''} ${readonly ? 'disabled' : ''}>
+                                            <label class="form-check-label">
+                                                Bandwidth Limiting
+                                                <button type="button" class="btn btn-link btn-sm p-0 ms-1" data-bs-toggle="tooltip" 
+                                                        title="Restricts the maximum data transfer rate. Simulates slower connections like 3G, satellite internet, etc.">
+                                                    <i class="bi bi-question-circle"></i>
+                                                </button>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <div class="mb-3">
+                                                    <label class="form-label">Download (bps)</label>
+                                                    <input type="number" class="form-control" id="bandwidthDownload" 
+                                                        value="${profile?.conditions?.bandwidth?.downloadBps || 0}" ${readonly ? 'readonly' : ''}>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="mb-3">
+                                                    <label class="form-label">Upload (bps)</label>
+                                                    <input type="number" class="form-control" id="bandwidthUpload" 
+                                                        value="${profile?.conditions?.bandwidth?.uploadBps || 0}" ${readonly ? 'readonly' : ''}>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Jitter -->
+                                <div class="card mb-3">
+                                    <div class="card-header">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="jitterEnabled" 
+                                                ${profile?.conditions?.jitter?.enabled ? 'checked' : ''} ${readonly ? 'disabled' : ''}>
+                                            <label class="form-check-label">
+                                                Jitter
+                                                <button type="button" class="btn btn-link btn-sm p-0 ms-1" data-bs-toggle="tooltip" 
+                                                        title="Variation in latency over time. Makes delay inconsistent, simulating unstable network conditions.">
+                                                    <i class="bi bi-question-circle"></i>
+                                                </button>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="mb-3">
+                                            <label class="form-label">Variation (ms)</label>
+                                            <input type="number" class="form-control" id="jitterVariation" 
+                                                value="${profile?.conditions?.jitter?.variationMs || 0}" ${readonly ? 'readonly' : ''}>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Corruption -->
+                                <div class="card mb-3">
+                                    <div class="card-header">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="corruptionEnabled" 
+                                                ${profile?.conditions?.corruption?.enabled ? 'checked' : ''} ${readonly ? 'disabled' : ''}>
+                                            <label class="form-check-label">
+                                                Packet Corruption
+                                                <button type="button" class="btn btn-link btn-sm p-0 ms-1" data-bs-toggle="tooltip" 
+                                                        title="Percentage of packets that get corrupted during transmission. Simulates poor quality connections.">
+                                                    <i class="bi bi-question-circle"></i>
+                                                </button>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="mb-3">
+                                            <label class="form-label">Percentage (%)</label>
+                                            <input type="number" class="form-control" id="corruptionPercentage" 
+                                                step="0.1" min="0" max="100" value="${profile?.conditions?.corruption?.percentage || 0}" ${readonly ? 'readonly' : ''}>
+                                        </div>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            ${!readonly ? `<button type="button" class="btn btn-primary" onclick="saveProfile(${isEdit})">
+                                ${isEdit ? 'Update' : 'Create'} Profile
+                            </button>` : ''}
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
 
-        toastContainer.insertAdjacentHTML('beforeend', toastHtml);
-        
-        const toastElement = document.getElementById(toastId);
-        const toast = new bootstrap.Toast(toastElement, { delay: 5000 });
-        toast.show();
+        // Remove existing modal if any
+        const existingModal = document.getElementById('profileModal');
+        if (existingModal) {
+            existingModal.remove();
+        }
 
-        // Remove toast element after it's hidden
-        toastElement.addEventListener('hidden.bs.toast', () => {
-            toastElement.remove();
+        // Add new modal to body
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('profileModal'));
+        modal.show();
+
+        // Initialize tooltips
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
         });
     }
 
-    startAutoRefresh() {
-        // Refresh every 30 seconds
-        this.refreshInterval = setInterval(() => {
-            if (this.currentTab === 'dashboard') {
-                this.loadDashboardData();
-            }
-        }, 30000);
-    }
+    async saveProfile(isEdit = false) {
+        const form = document.getElementById('profileForm');
+        const formData = new FormData(form);
 
-    stopAutoRefresh() {
-        if (this.refreshInterval) {
-            clearInterval(this.refreshInterval);
-            this.refreshInterval = null;
+        try {
+            // Collect form data
+            const profileData = {
+                name: document.getElementById('profileName').value,
+                displayName: document.getElementById('profileDisplayName').value,
+                description: document.getElementById('profileDescription').value,
+                type: document.getElementById('profileType').value,
+                tags: document.getElementById('profileTags').value.split(',').map(t => t.trim()).filter(t => t),
+                conditions: {
+                    latency: {
+                        enabled: document.getElementById('latencyEnabled').checked,
+                        delayMs: parseInt(document.getElementById('latencyDelay').value) || 0
+                    },
+                    packetLoss: {
+                        enabled: document.getElementById('packetLossEnabled').checked,
+                        percentage: parseFloat(document.getElementById('packetLossPercentage').value) || 0
+                    },
+                    bandwidth: {
+                        enabled: document.getElementById('bandwidthEnabled').checked,
+                        downloadBps: parseInt(document.getElementById('bandwidthDownload').value) || 0,
+                        uploadBps: parseInt(document.getElementById('bandwidthUpload').value) || 0
+                    },
+                    jitter: {
+                        enabled: document.getElementById('jitterEnabled').checked,
+                        variationMs: parseInt(document.getElementById('jitterVariation').value) || 0
+                    },
+                    corruption: {
+                        enabled: document.getElementById('corruptionEnabled').checked,
+                        percentage: parseFloat(document.getElementById('corruptionPercentage').value) || 0
+                    }
+                }
+            };
+
+            let result;
+            if (isEdit) {
+                result = await this.connectClient.updateProfile(profileData.name, profileData);
+            } else {
+                result = await this.connectClient.createProfile(profileData);
+            }
+
+            if (result.success) {
+                this.showNotification(`Profile ${isEdit ? 'updated' : 'created'} successfully`, 'success');
+                
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('profileModal'));
+                modal.hide();
+                
+                // Reload profiles
+                await this.loadProfiles();
+            } else {
+                this.showNotification(`Failed to ${isEdit ? 'update' : 'create'} profile: ${result.errorMessage}`, 'error');
+            }
+
+        } catch (error) {
+            console.error(`Failed to ${isEdit ? 'update' : 'create'} profile:`, error);
+            this.showNotification(`Failed to ${isEdit ? 'update' : 'create'} profile: ${error.message}`, 'error');
         }
     }
+
+    async resetInterfaceConditions(interfaceName) {
+        if (!confirm(`Are you sure you want to reset network conditions on ${interfaceName}?`)) {
+            return;
+        }
+
+        try {
+            const result = await this.connectClient.resetNetworkConditions(interfaceName);
+            if (result.success) {
+                this.showNotification(`Network conditions reset on ${interfaceName}`, 'success');
+                await this.loadInterfaces(); // Reload to show updated status
+            } else {
+                this.showNotification(`Failed to reset conditions: ${result.errorMessage}`, 'error');
+            }
+        } catch (error) {
+            console.error('Failed to reset network conditions:', error);
+            this.showNotification(`Failed to reset conditions: ${error.message}`, 'error');
+        }
+    }
+
+    // Helper Functions
+    getInterfaceTypeText(type) {
+        const types = {
+            'INTERFACE_TYPE_ETHERNET': 'Ethernet',
+            'INTERFACE_TYPE_WIRELESS': 'Wireless',
+            'INTERFACE_TYPE_LOOPBACK': 'Loopback',
+            'INTERFACE_TYPE_BRIDGE': 'Bridge',
+            'INTERFACE_TYPE_UNSPECIFIED': 'Unknown'
+        };
+        return types[type] || 'Unknown';
+    }
+
+    getInterfaceIcon(type) {
+        const icons = {
+            'INTERFACE_TYPE_ETHERNET': 'bi-ethernet',
+            'INTERFACE_TYPE_WIRELESS': 'bi-wifi',
+            'INTERFACE_TYPE_LOOPBACK': 'bi-arrow-repeat',
+            'INTERFACE_TYPE_BRIDGE': 'bi-diagram-3',
+            'INTERFACE_TYPE_UNSPECIFIED': 'bi-question-circle'
+        };
+        return icons[type] || 'bi-question-circle';
+    }
+
+    getProfileTypeText(type) {
+        const types = {
+            'PROFILE_TYPE_MOBILE': 'Mobile',
+            'PROFILE_TYPE_WIFI': 'WiFi',
+            'PROFILE_TYPE_SATELLITE': 'Satellite',
+            'PROFILE_TYPE_CUSTOM': 'Custom',
+            'PROFILE_TYPE_TESTING': 'Testing',
+            'PROFILE_TYPE_UNSPECIFIED': 'Unknown'
+        };
+        return types[type] || 'Unknown';
+    }
+
+    getProfileIcon(type) {
+        const icons = {
+            'PROFILE_TYPE_MOBILE': 'bi-phone',
+            'PROFILE_TYPE_WIFI': 'bi-wifi',
+            'PROFILE_TYPE_SATELLITE': 'bi-globe',
+            'PROFILE_TYPE_CUSTOM': 'bi-gear',
+            'PROFILE_TYPE_TESTING': 'bi-flask',
+            'PROFILE_TYPE_UNSPECIFIED': 'bi-question-circle'
+        };
+        return icons[type] || 'bi-question-circle';
+    }
+
+    formatHealthStatus(status) {
+        const statusMap = {
+            'HEALTH_STATUS_HEALTHY': 'Healthy',
+            'HEALTH_STATUS_UNHEALTHY': 'Unhealthy',
+            'HEALTH_STATUS_DEGRADED': 'Degraded',
+            'HEALTH_STATUS_UNKNOWN': 'Unknown',
+            'HEALTH_STATUS_UNSPECIFIED': 'Unknown'
+        };
+        return statusMap[status] || status || 'Unknown';
+    }
+
+    getHealthStatusClass(status) {
+        const classMap = {
+            'HEALTH_STATUS_HEALTHY': 'text-success',
+            'HEALTH_STATUS_UNHEALTHY': 'text-danger',
+            'HEALTH_STATUS_DEGRADED': 'text-warning',
+            'HEALTH_STATUS_UNKNOWN': 'text-secondary',
+            'HEALTH_STATUS_UNSPECIFIED': 'text-secondary'
+        };
+        return classMap[status] || 'text-secondary';
+    }
+
+    extractDeviceInfo(systemStatus) {
+        const deviceInfo = {
+            ip: 'Unknown',
+            model: 'Unknown'
+        };
+
+        // Extract IP from interfaces
+        if (systemStatus.interfaces && systemStatus.interfaces.length > 0) {
+            for (const iface of systemStatus.interfaces) {
+                if (iface.ipAddresses && iface.ipAddresses.length > 0 && iface.isUp) {
+                    // Prefer non-loopback interfaces
+                    if (iface.type !== 'INTERFACE_TYPE_LOOPBACK') {
+                        deviceInfo.ip = iface.ipAddresses[0];
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Extract model information (if available in system status)
+        if (systemStatus.systemInfo) {
+            deviceInfo.model = systemStatus.systemInfo.model || 'NetTestLab Device';
+        } else {
+            deviceInfo.model = 'NetTestLab Device';
+        }
+
+        return deviceInfo;
+    }
+
+    updateDeviceInfo(deviceInfo) {
+        // Check if device info elements exist, if not create them
+        let deviceIPElement = document.getElementById('deviceIP');
+        let deviceModelElement = document.getElementById('deviceModel');
+
+        if (!deviceIPElement || !deviceModelElement) {
+            // Add device info to the system status card
+            const systemCard = document.querySelector('.card-body');
+            if (systemCard) {
+                const deviceInfoHtml = `
+                    <hr>
+                    <div class="row">
+                        <div class="col-6">
+                            <small class="text-muted">Device IP</small>
+                            <div id="deviceIP" class="fw-bold">${deviceInfo.ip}</div>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Model</small>
+                            <div id="deviceModel" class="fw-bold">${deviceInfo.model}</div>
+                        </div>
+                    </div>
+                `;
+                systemCard.insertAdjacentHTML('beforeend', deviceInfoHtml);
+            }
+        } else {
+            deviceIPElement.textContent = deviceInfo.ip;
+            deviceModelElement.textContent = deviceInfo.model;
+        }
+    }
+
+    sortInterfaces(interfaces) {
+        return interfaces.sort((a, b) => {
+            // First: interfaces with IPs and UP
+            const aHasIPsAndUp = (a.ipAddresses && a.ipAddresses.length > 0) && a.isUp;
+            const bHasIPsAndUp = (b.ipAddresses && b.ipAddresses.length > 0) && b.isUp;
+            
+            if (aHasIPsAndUp && !bHasIPsAndUp) return -1;
+            if (!aHasIPsAndUp && bHasIPsAndUp) return 1;
+            
+            // Second: interfaces with IPs (regardless of UP status)
+            const aHasIPs = a.ipAddresses && a.ipAddresses.length > 0;
+            const bHasIPs = b.ipAddresses && b.ipAddresses.length > 0;
+            
+            if (aHasIPs && !bHasIPs) return -1;
+            if (!aHasIPs && bHasIPs) return 1;
+            
+            // Third: UP interfaces
+            if (a.isUp && !b.isUp) return -1;
+            if (!a.isUp && b.isUp) return 1;
+            
+            // Finally: alphabetical order
+            return a.name.localeCompare(b.name);
+        });
+    }
+
+    formatBandwidth(bps) {
+        if (!bps || bps === 0) return '0 bps';
+        
+        const units = [
+            { name: 'Gbps', value: 1000000000 },
+            { name: 'Mbps', value: 1000000 },
+            { name: 'Kbps', value: 1000 },
+            { name: 'bps', value: 1 }
+        ];
+        
+        for (const unit of units) {
+            if (bps >= unit.value) {
+                const value = (bps / unit.value).toFixed(bps >= unit.value * 10 ? 0 : 1);
+                return `${value} ${unit.name}`;
+            }
+        }
+        
+        return `${bps} bps`;
+    }
+
+    formatNetworkConditions(conditions) {
+        if (!conditions) return 'None configured';
+        
+        const parts = [];
+        if (conditions.latency?.enabled) parts.push(`Latency: ${conditions.latency.delayMs}ms`);
+        if (conditions.packetLoss?.enabled) parts.push(`Loss: ${conditions.packetLoss.percentage}%`);
+        if (conditions.bandwidth?.enabled) parts.push(`BW: ${this.formatBandwidth(conditions.bandwidth.downloadBps)}`);
+        if (conditions.jitter?.enabled) parts.push(`Jitter: ${conditions.jitter.variationMs}ms`);
+        if (conditions.corruption?.enabled) parts.push(`Corruption: ${conditions.corruption.percentage}%`);
+        
+        return parts.length > 0 ? parts.join(', ') : 'None active';
+    }
+
+    showNotification(message, type) {
+        // Create a toast notification
+        const toast = document.createElement('div');
+        toast.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
+        toast.style.zIndex = '9999';
+        toast.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        document.body.appendChild(toast);
+        
+        // Auto remove after 5 seconds
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.parentNode.removeChild(toast);
+            }
+        }, 5000);
+    }
 }
 
-// Initialize app when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    window.app = new NetTestLabApp();
+// Initialize the application when DOM is loaded
+document.addEventListener('DOMContentLoaded', async () => {
+    window.netTestLabApp = new NetTestLabApp();
+    await window.netTestLabApp.init();
 });
-
-// Global functions for onclick handlers
-function showTab(tabName) {
-    window.app.showTab(tabName);
-}
-
-function refreshInterfaces() {
-    window.app.refreshInterfaces();
-}
-
-function refreshClients() {
-    window.app.refreshClients();
-}
-
-function showCreateProfileModal() {
-    window.app.showCreateProfileModal();
-}
-
-function saveProfile() {
-    window.app.saveProfile();
-}

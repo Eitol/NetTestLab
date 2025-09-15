@@ -18,6 +18,7 @@ import (
 func main() {
 	serverAddr := flag.String("server", "192.168.1.4:8080", "Server address")
 	useTLS := flag.Bool("tls", false, "Use TLS connection")
+	quickTest := flag.Bool("test", false, "Run quick connectivity test only")
 	flag.Parse()
 
 	fmt.Printf("🔗 Connecting to NetTestLab server at %s\n", *serverAddr)
@@ -49,6 +50,17 @@ func main() {
 	defer cancel()
 
 	fmt.Println("✅ Connected successfully!")
+
+	// If quick test mode, just do connectivity check and exit
+	if *quickTest {
+		fmt.Println("\n🚀 Quick Test Mode: Basic connectivity check")
+		_, err := networkClient.GetSystemStatus(ctx, &pb.GetSystemStatusRequest{})
+		if err != nil {
+			log.Fatalf("❌ Quick test failed: %v", err)
+		}
+		fmt.Println("✅ Quick test passed: Server is responding")
+		return
+	}
 
 	// Test 1: Get system status (shows interfaces)
 	fmt.Println("\n📋 Testing: Get System Status")

@@ -1,0 +1,105 @@
+# Dockerfile for building OpenWrt packages
+FROM ubuntu:22.04
+
+# Install all dependencies at once for better caching
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    fakeroot \
+    file \
+    wget \
+    curl \
+    git \
+    python3 \
+    python3-pip \
+    binutils \
+    tar \
+    gzip \
+    xz-utils \
+    unzip \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create optimized opkg-build script with all tools available
+COPY <<EOF /usr/local/bin/opkg-build
+#!/bin/bash
+# Optimized opkg-build implementation for OpenWrt packages
+
+set -e
+
+if [ \$# -lt 2 ]; then
+    echo "Usage: opkg-build <package_dir> <dest_dir>"
+    exit 1
+fi
+
+PACKAGE_DIR="\$(realpath "\$1")"
+DEST_DIR="\$(realpath "\$2")"
+
+if [ ! -d "\$PACKAGE_DIR" ]; then
+    echo "Error: Package directory does not exist: \$PACKAGE_DIR"
+    exit 1
+fi
+
+if [ ! -d "\$PACKAGE_DIR/DEBIAN" ]; then
+    echo "Error: DEBIAN directory not found in package"
+    exit 1
+fi
+
+if [ ! -f "\$PACKAGE_DIR/DEBIAN/control" ]; then
+    echo "Error: control file not found"
+    exit 1
+fi
+
+# Use environment variables passed to container instead of parsing control file
+PACKAGE_NAME="\${PACKAGE_NAME:-nettestlab}"
+VERSION="\${VERSION:-1.0.0}"
+RELEASE="\${RELEASE:-1}"
+ARCHITECTURE="\${ARCHITECTURE:-aarch64}"
+
+IPK_FILE="\${PACKAGE_NAME}_\${VERSION}-\${RELEASE}_\${ARCHITECTURE}.ipk"
+
+# Create temporary directory
+TMP_DIR=\$(mktemp -d)
+cd "\$TMP_DIR"
+
+# Create data.tar.gz (exclude DEBIAN directory)
+echo "Creating data.tar.gz..."
+(cd "\$PACKAGE_DIR" && tar -czf "\$TMP_DIR/data.tar.gz" --exclude=DEBIAN .)
+
+# Create control.tar.gz
+echo "Creating control.tar.gz..."
+(cd "\$PACKAGE_DIR/DEBIAN" && tar -czf "\$TMP_DIR/control.tar.gz" .)
+
+# Create debian-binary
+echo "2.0" > debian-binary
+
+# Create the IPK file using tar (not ar) - this is the correct OpenWrt format
+echo "Creating IPK package..."
+tar -czf "\$IPK_FILE" debian-binary control.tar.gz data.tar.gz
+
+# Verify the package was created
+if [ -f "\$IPK_FILE" ]; then
+    mv "\$IPK_FILE" "\$DEST_DIR/"
+    echo "Package created: \$DEST_DIR/\$IPK_FILE"
+else
+    echo "Error: Failed to create package"
+    exit 1
+fi
+
+# Cleanup
+rm -rf "\$TMP_DIR"
+EOF
+
+RUN chmod +x /usr/local/bin/opkg-build
+
+# Verify opkg-build is working
+RUN echo "Testing opkg-build installation..." && which opkg-build
+
+# Create working directory
+WORKDIR /workspace
+
+# Copy build script (this will be the only layer that changes frequently)
+COPY scripts/build-openwrt-package-docker.sh /build-package.sh
+RUN chmod +x /build-package.sh
+
+# Default command
+CMD ["/build-package.sh"]

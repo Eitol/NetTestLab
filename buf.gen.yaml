@@ -8,14 +8,6 @@ plugins:
     out: api
     opt:
       - paths=source_relative
-  - plugin: buf.build/protocolbuffers/js
-    out: clients/javascript/src
-    opt:
-      - import_style=commonjs
-  - plugin: buf.build/grpc/web
-    out: clients/javascript/src
-    opt:
-      - mode=grpcweb
   - plugin: buf.build/protocolbuffers/python
     out: clients/python/src
   - plugin: buf.build/grpc/python

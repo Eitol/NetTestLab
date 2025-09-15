@@ -147,28 +147,65 @@ chmod 755 "$CONTROL_DIR/prerm"
 chmod 755 "$CONTROL_DIR/postrm"
 
 # Create data.tar.gz
-echo -e "${YELLOW}📦 Creating data archive...${NC}"
-cd "$DATA_DIR"
-tar czf "$BUILD_DIR/data.tar.gz" .
+echo -e "${YELLOW}📦 Creating package structure...${NC}"
 
-# Create control.tar.gz  
-echo -e "${YELLOW}📦 Creating control archive...${NC}"
-cd "$CONTROL_DIR"
-tar czf "$BUILD_DIR/control.tar.gz" .
+# Instead of creating tar files manually, prepare the package directory structure
+# that opkg-build expects
+PACKAGE_ROOT="$BUILD_DIR/package_root"
+rm -rf "$PACKAGE_ROOT"
+mkdir -p "$PACKAGE_ROOT"
 
-# Create the IPK package
-echo -e "${YELLOW}📦 Creating IPK package...${NC}"
+# Copy data files to package root
+cp -r "$DATA_DIR"/* "$PACKAGE_ROOT/"
+
+# Copy control files to DEBIAN directory (opkg-build expects this structure)
+mkdir -p "$PACKAGE_ROOT/DEBIAN"
+cp -r "$CONTROL_DIR"/* "$PACKAGE_ROOT/DEBIAN/"
+
+# Create the IPK package using opkg-build
+echo -e "${YELLOW}📦 Creating IPK package with opkg-build...${NC}"
 cd "$BUILD_DIR"
-echo "2.0" > debian-binary
 
-# Check if archives exist
-if [ ! -f "control.tar.gz" ] || [ ! -f "data.tar.gz" ]; then
-    echo -e "${RED}❌ Missing archive files${NC}"
-    ls -la
-    exit 1
+# Check if opkg-build is available
+if command -v opkg-build >/dev/null 2>&1; then
+    # Use opkg-build (preferred method)
+    opkg-build "$PACKAGE_ROOT" .
+    
+    # Find the generated package
+    GENERATED_PACKAGE=$(find . -name "*.ipk" -type f | head -1)
+    if [ -n "$GENERATED_PACKAGE" ]; then
+        mv "$GENERATED_PACKAGE" "$PACKAGE_FILE"
+    fi
+else
+    echo -e "${YELLOW}⚠️  opkg-build not found, attempting manual creation...${NC}"
+    
+    # Create tarballs manually as fallback
+    cd "$PACKAGE_ROOT"
+    tar -czf "$BUILD_DIR/data.tar.gz" --exclude=DEBIAN .
+    
+    cd "$PACKAGE_ROOT/DEBIAN"
+    tar -czf "$BUILD_DIR/control.tar.gz" .
+    
+    cd "$BUILD_DIR"
+    echo "2.0" > debian-binary
+    
+    # Check if archives exist
+    if [ ! -f "control.tar.gz" ] || [ ! -f "data.tar.gz" ]; then
+        echo -e "${RED}❌ Missing archive files${NC}"
+        ls -la
+        exit 1
+    fi
+    
+    # Use ar with specific options for OpenWrt compatibility
+    if command -v ar >/dev/null 2>&1; then
+        # Create IPK using ar (preferred method)
+        ar rcs "$PACKAGE_FILE" debian-binary control.tar.gz data.tar.gz
+    else
+        # Fallback: create using tar (less ideal but works)
+        echo -e "${YELLOW}⚠️  ar not found, using tar fallback${NC}"
+        tar -cf "$PACKAGE_FILE" debian-binary control.tar.gz data.tar.gz
+    fi
 fi
-
-ar r "$PACKAGE_FILE" debian-binary control.tar.gz data.tar.gz
 
 if [ -f "$PACKAGE_FILE" ]; then
     echo -e "${GREEN}✅ Package created successfully: $PACKAGE_FILE${NC}"

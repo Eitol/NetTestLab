@@ -1,99 +1,110 @@
-#
-# Copyright (C) 2025 NetTestLab
-#
-# This is free software, licensed under the MIT License.
-#
-
+# OpenWrt package Makefile for NetTestLab
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nettestlab
 PKG_VERSION:=1.0.0
 PKG_RELEASE:=1
 
-PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
+PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+PKG_SOURCE_URL:=https://github.com/Eitol/NetTestLab/archive/v$(PKG_VERSION)/
+PKG_HASH:=skip
 PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
 
+PKG_LICENSE:=MIT
+PKG_LICENSE_FILES:=LICENSE
+PKG_MAINTAINER:=Eitol <hector@example.com>
+
+PKG_BUILD_DEPENDS:=golang/host
+PKG_BUILD_PARALLEL:=1
+PKG_USE_MIPS16:=0
+
+GO_PKG:=github.com/Eitol/NetTestLab
+GO_PKG_BUILD_PKG:=github.com/Eitol/NetTestLab/cmd/server
+GO_PKG_LDFLAGS_X:=main.version=v$(PKG_VERSION)
+
 include $(INCLUDE_DIR)/package.mk
+include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
 
 define Package/nettestlab
-	SECTION:=net
-	CATEGORY:=Network
-	TITLE:=Network Testing Laboratory gRPC Server
-	DEPENDS:=+tc-bpf +kmod-sched-core +kmod-ifb
-	MAINTAINER:=NetTestLab Team
-	URL:=https://github.com/Eitol/NetTestLab
+  SECTION:=net
+  CATEGORY:=Network
+  TITLE:=Network traffic control and simulation tool
+  URL:=https://github.com/Eitol/NetTestLab
+  DEPENDS:=$(GO_ARCH_DEPENDS) +tc +kmod-sched-core +kmod-ifb +kmod-netem
+  PKGARCH:=all
 endef
 
 define Package/nettestlab/description
-	NetTestLab is a gRPC server for controlling network conditions on OpenWRT routers.
-	It provides APIs to simulate various network conditions like latency, packet loss,
-	bandwidth limitations, and jitter for automated mobile application testing.
-	
-	Features:
-	- gRPC API for network control
-	- Built-in network profiles (2G, 3G, 4G, 5G, WiFi, Satellite)
-	- Real-time network monitoring
-	- Traffic shaping using Linux tc (netem)
-	- Cross-platform client libraries support
+  NetTestLab is a network traffic control and simulation tool for OpenWrt routers.
+  It provides a gRPC API to control network conditions like latency, bandwidth,
+  and packet loss for testing mobile applications and network scenarios.
+  
+  Features:
+  - Real-time network condition control via gRPC API
+  - Built-in profiles for common mobile network scenarios (2G, 3G, 4G, WiFi)
+  - Custom profile creation and management
+  - System monitoring and metrics collection
+  - Cross-platform client libraries (Go, Python, JavaScript, Java, Dart)
 endef
 
 define Package/nettestlab/conffiles
 /etc/config/nettestlab
 endef
 
-define Build/Configure
-endef
-
 define Build/Compile
-	# Cross-compile for the target architecture
-	cd $(PKG_BUILD_DIR) && \
-	GOOS=linux GOARCH=$(if $(CONFIG_aarch64),arm64,$(if $(CONFIG_arm),arm,$(if $(CONFIG_mips),mips,$(if $(CONFIG_mipsel),mipsle,$(if $(CONFIG_x86_64),amd64,$(CONFIG_ARCH)))))) \
-	CGO_ENABLED=0 \
-	go build -ldflags="-s -w" -o nettestlab ./cmd/server
+	$(call GoPackage/Build/Compile)
 endef
 
 define Package/nettestlab/install
-	# Install binary
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/nettestlab $(1)/usr/bin/
+	$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/server $(1)/usr/bin/nettestlab
 
-	# Install init script
 	$(INSTALL_DIR) $(1)/etc/init.d
-	$(INSTALL_BIN) ./files/etc/init.d/nettestlab $(1)/etc/init.d/
+	$(INSTALL_BIN) ./files/etc/init.d/nettestlab $(1)/etc/init.d/nettestlab
 
-	# Install configuration
 	$(INSTALL_DIR) $(1)/etc/config
-	$(INSTALL_CONF) ./files/etc/config/nettestlab $(1)/etc/config/
+	$(INSTALL_CONF) ./files/etc/config/nettestlab $(1)/etc/config/nettestlab
 
-	# Install uci defaults
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
-	$(INSTALL_BIN) ./files/etc/uci-defaults/nettestlab $(1)/etc/uci-defaults/
+	$(INSTALL_BIN) ./files/etc/uci-defaults/nettestlab $(1)/etc/uci-defaults/nettestlab
 endef
 
 define Package/nettestlab/postinst
 #!/bin/sh
-if [ -z "$${IPKG_INSTROOT}" ]; then
-	echo "Enabling NetTestLab service..."
+[ -n "$${IPKG_INSTROOT}" ] || {
+	# Enable and start the service
 	/etc/init.d/nettestlab enable
+	/etc/init.d/nettestlab start
+	
+	# Create data directory for profiles if it doesn't exist
+	[ -d /var/lib/nettestlab ] || mkdir -p /var/lib/nettestlab
+	
 	echo "NetTestLab installed successfully!"
-	echo "Configure: /etc/config/nettestlab"
-	echo "Start: /etc/init.d/nettestlab start"
-fi
+	echo "Access the gRPC API at: your-router-ip:8080"
+	echo "View logs with: logread | grep nettestlab"
+	echo "Built-in profiles will be created automatically on first start"
+}
+exit 0
 endef
 
 define Package/nettestlab/prerm
 #!/bin/sh
-if [ -z "$${IPKG_INSTROOT}" ]; then
-	echo "Stopping NetTestLab service..."
-	/etc/init.d/nettestlab stop >/dev/null 2>&1 || true
-	/etc/init.d/nettestlab disable >/dev/null 2>&1 || true
-fi
+[ -n "$${IPKG_INSTROOT}" ] || {
+	/etc/init.d/nettestlab stop
+	/etc/init.d/nettestlab disable
+}
+exit 0
 endef
 
-# Prepare source code
-define Build/Prepare
-	$(INSTALL_DIR) $(PKG_BUILD_DIR)
-	$(CP) $(CURDIR)/../* $(PKG_BUILD_DIR)/
+define Package/nettestlab/postrm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] || {
+	# Remove data directory if user wants to
+	echo "To completely remove all NetTestLab data, run:"
+	echo "rm -rf /var/lib/nettestlab"
+}
+exit 0
 endef
 
+$(eval $(call GoBinPackage,nettestlab))
 $(eval $(call BuildPackage,nettestlab))

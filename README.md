@@ -5,7 +5,11 @@
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-23.05+-green.svg)](https://openwrt.org)
 [![gRPC](https://img.shields.io/badge/gRPC-1.50+-blue.svg)](https://grpc.io)
 
-**NetTestLab** is a comprehensive network traffic control system designed for mobile application testing. It allows developers and QA engineers to simulate various network conditions (2G, 3G, 4G, 5G, WiFi, satellite) directly on OpenWrt routers, providing realistic testing environments for mobile applications.
+**NetTestLab** is a comprehensive network traffic control system designed for mobile application testing. 
+
+It allows developers and QA engineers to simulate various network conditions (2G, 3G, 4G, etc) directly on OpenWrt routers, providing realistic testing environments for mobile applications.
+
+![How it works](docs/assets/how-works.png)
 
 ## ✨ Features
 
@@ -180,6 +184,7 @@ NetTestLab uses a file-based profile system for maximum flexibility:
 - **Auto-reload**: Changes to profile files are loaded when the service starts
 
 **Profile File Structure:**
+
 ```json
 {
   "name": "custom_profile",
