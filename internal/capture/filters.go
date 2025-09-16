@@ -244,15 +244,15 @@ func (fb *FilterBuilder) formatMacForBPF(mac string) string {
 func (fb *FilterBuilder) convertRegexToBPFHosts(regex string) string {
 	// Map of common patterns to known IP ranges or hosts
 	knownPatterns := map[string]string{
-		".*\\.facebook\\.com":   "host 31.13.64.0/18 or host 31.13.69.0/24",  // Facebook IP ranges
-		".*\\.google\\.com":     "host 8.8.8.8 or host 172.217.0.0/16",       // Google IP ranges
-		".*\\.youtube\\.com":    "host 172.217.0.0/16",                        // YouTube (Google)
-		".*\\.netflix\\.com":    "host 54.0.0.0/8",                            // Netflix (AWS)
-		".*\\.instagram\\.com":  "host 31.13.64.0/18",                         // Instagram (Facebook)
-		".*\\.twitter\\.com":    "host 104.244.42.0/24",                       // Twitter IP ranges
-		".*\\.amazon\\.com":     "host 54.0.0.0/8 or host 3.0.0.0/8",         // Amazon IP ranges
-		".*\\.apple\\.com":      "host 17.0.0.0/8",                            // Apple IP ranges
-		".*\\.microsoft\\.com":  "host 13.0.0.0/8 or host 40.0.0.0/8",        // Microsoft IP ranges
+		".*\\.facebook\\.com":  "host 31.13.64.0/18 or host 31.13.69.0/24", // Facebook IP ranges
+		".*\\.google\\.com":    "host 8.8.8.8 or host 172.217.0.0/16",      // Google IP ranges
+		".*\\.youtube\\.com":   "host 172.217.0.0/16",                      // YouTube (Google)
+		".*\\.netflix\\.com":   "host 54.0.0.0/8",                          // Netflix (AWS)
+		".*\\.instagram\\.com": "host 31.13.64.0/18",                       // Instagram (Facebook)
+		".*\\.twitter\\.com":   "host 104.244.42.0/24",                     // Twitter IP ranges
+		".*\\.amazon\\.com":    "host 54.0.0.0/8 or host 3.0.0.0/8",        // Amazon IP ranges
+		".*\\.apple\\.com":     "host 17.0.0.0/8",                          // Apple IP ranges
+		".*\\.microsoft\\.com": "host 13.0.0.0/8 or host 40.0.0.0/8",       // Microsoft IP ranges
 	}
 
 	// Check for exact matches first

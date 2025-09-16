@@ -45,7 +45,7 @@ func (s *TrafficCaptureService) Close() error {
 	if s.targetManager != nil {
 		err2 = s.targetManager.Close()
 	}
-	
+
 	// Return first error encountered
 	if err1 != nil {
 		return err1
