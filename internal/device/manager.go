@@ -74,7 +74,7 @@ func (m *Manager) mergeDetectedDevice(detected *DetectedDevice) error {
 
 	now := time.Now()
 	nowStr := now.Format(time.RFC3339)
-	
+
 	if existing == nil {
 		// Create new device record
 		deviceRow := &DeviceRow{
@@ -124,7 +124,7 @@ func (m *Manager) mergeDetectedDevice(detected *DetectedDevice) error {
 // addIPToHistory adds the current IP to the previous IPs list
 func (m *Manager) addIPToHistory(device *DeviceRow, newIP string) error {
 	var previousIPs []string
-	
+
 	if device.PreviousIPs != nil && *device.PreviousIPs != "" {
 		err := json.Unmarshal([]byte(*device.PreviousIPs), &previousIPs)
 		if err != nil {
@@ -143,10 +143,10 @@ func (m *Manager) addIPToHistory(device *DeviceRow, newIP string) error {
 				break
 			}
 		}
-		
+
 		if !found {
 			previousIPs = append(previousIPs, *device.IPAddress)
-			
+
 			// Keep only last 10 IPs
 			if len(previousIPs) > 10 {
 				previousIPs = previousIPs[len(previousIPs)-10:]
@@ -159,10 +159,10 @@ func (m *Manager) addIPToHistory(device *DeviceRow, newIP string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	jsonStr := string(jsonData)
 	device.PreviousIPs = &jsonStr
-	
+
 	return nil
 }
 
@@ -170,7 +170,7 @@ func (m *Manager) addIPToHistory(device *DeviceRow, newIP string) error {
 func (m *Manager) ListDevices(filter nettestlabv1.DeviceFilter, pageSize int, pageToken string) ([]*nettestlabv1.Device, string, int, error) {
 	// Convert proto filter to internal filter
 	dbFilter := m.convertFilterToDBFilter(filter)
-	
+
 	// Calculate offset from page token
 	offset := 0
 	if pageToken != "" {
@@ -213,7 +213,7 @@ func (m *Manager) ListDevices(filter nettestlabv1.DeviceFilter, pageSize int, pa
 func (m *Manager) RegisterDevice(macAddress, deviceName, deviceModel, osVersion, appVersion string) (*nettestlabv1.Device, bool, error) {
 	// Normalize MAC address
 	macAddress = strings.ToLower(macAddress)
-	
+
 	// Validate MAC address format
 	if !m.discovery.isValidMACAddress(macAddress) {
 		return nil, false, fmt.Errorf("invalid MAC address format")
@@ -271,7 +271,7 @@ func (m *Manager) RegisterDevice(macAddress, deviceName, deviceModel, osVersion,
 		if appVersion != "" {
 			existing.AppVersion = &appVersion
 		}
-		
+
 		if !existing.Registered {
 			existing.Registered = true
 			existing.RegisteredAt = &nowStr

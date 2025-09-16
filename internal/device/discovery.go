@@ -75,12 +75,12 @@ func (d *Discovery) ScanConnectedDevices() ([]*DetectedDevice, error) {
 	for _, device := range deviceMap {
 		// Lookup vendor information
 		device.Vendor = d.vendorLookup.LookupVendor(device.MacAddress)
-		
+
 		// Try to resolve hostname if not available
 		if device.Hostname == "" {
 			device.Hostname = d.resolveHostname(device.IPAddress)
 		}
-		
+
 		devices = append(devices, device)
 	}
 
@@ -98,7 +98,7 @@ func (d *Discovery) scanARPTable() ([]*DetectedDevice, error) {
 
 	var devices []*DetectedDevice
 	scanner := bufio.NewScanner(file)
-	
+
 	// Skip header line
 	if scanner.Scan() {
 		// Header: IP address HW type Flags HW address Mask Device
@@ -157,10 +157,10 @@ func (d *Discovery) scanDHCPLeases() ([]*DetectedDevice, error) {
 
 	var currentLease *DetectedDevice
 	leaseRegex := regexp.MustCompile(`^lease\s+(\S+)\s+{`)
-	
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		
+
 		// Start of a new lease
 		if matches := leaseRegex.FindStringSubmatch(line); matches != nil {
 			currentLease = &DetectedDevice{
@@ -169,11 +169,11 @@ func (d *Discovery) scanDHCPLeases() ([]*DetectedDevice, error) {
 			}
 			continue
 		}
-		
+
 		if currentLease == nil {
 			continue
 		}
-		
+
 		// Parse lease properties
 		if strings.HasPrefix(line, "hardware ethernet") {
 			mac := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(line, "hardware ethernet")), ";")
@@ -199,13 +199,13 @@ func (d *Discovery) resolveHostname(ipAddress string) string {
 	if err != nil || len(names) == 0 {
 		return ""
 	}
-	
+
 	hostname := names[0]
 	// Remove trailing dot if present
 	if strings.HasSuffix(hostname, ".") {
 		hostname = hostname[:len(hostname)-1]
 	}
-	
+
 	return hostname
 }
 
@@ -221,7 +221,7 @@ func (d *Discovery) StartPeriodicScan(interval time.Duration, callback func([]*D
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ticker.C:

@@ -29,7 +29,7 @@ func (v *VendorLookup) LookupVendor(macAddress string) string {
 	}
 
 	oui := mac[:6]
-	
+
 	// Check direct OUI match
 	if vendor, exists := v.vendorMap[oui]; exists {
 		return vendor
@@ -44,13 +44,13 @@ func getCommonVendors() map[string]string {
 	return map[string]string{
 		// Apple
 		"001cb3": "Apple",
-		"0017f2": "Apple", 
+		"0017f2": "Apple",
 		"0019e3": "Apple",
 		"001ec2": "Apple",
 		"0023df": "Apple",
 		"002332": "Apple",
 		"002436": "Apple",
-		"0025bc": "Apple", 
+		"0025bc": "Apple",
 		"002608": "Apple",
 		"0026bb": "Apple",
 		"002711": "Apple",
@@ -65,7 +65,7 @@ func getCommonVendors() map[string]string {
 		// Samsung
 		"0015b9": "Samsung",
 		"001632": "Samsung",
-		"0018af": "Samsung", 
+		"0018af": "Samsung",
 		"001d25": "Samsung",
 		"002454": "Samsung",
 		"0026cc": "Samsung",
@@ -94,7 +94,7 @@ func getCommonVendors() map[string]string {
 		"28ff3c": "Xiaomi",
 		"341c85": "Xiaomi",
 		"3c28d2": "Xiaomi",
-		"50d2f5": "Xiaomi", 
+		"50d2f5": "Xiaomi",
 		"64b473": "Xiaomi",
 		"68df7a": "Xiaomi",
 		"78442e": "Xiaomi",

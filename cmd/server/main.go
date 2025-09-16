@@ -60,7 +60,7 @@ func main() {
 	networkService := server.NewNetworkControlService(networkController)
 	profileService := server.NewProfileService(profileManager, networkController)
 	monitoringService := server.NewMonitoringService(networkController)
-	
+
 	// Create traffic capture service
 	trafficCaptureService, err := server.NewTrafficCaptureService(*dataDir)
 	if err != nil {

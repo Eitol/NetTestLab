@@ -267,7 +267,7 @@ func (d *Database) DeleteDevice(id string) error {
 // CountDevices returns the total count of devices matching the filter
 func (d *Database) CountDevices(filter DeviceFilter) (int, error) {
 	query := "SELECT COUNT(*) FROM devices"
-	
+
 	var whereClause string
 	switch filter {
 	case DeviceFilterConnected:

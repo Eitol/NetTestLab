@@ -8,11 +8,13 @@ import (
 
 	nettestlabv1 "github.com/Eitol/NetTestLab/api/nettestlab/v1"
 	"github.com/Eitol/NetTestLab/internal/device"
+	"github.com/Eitol/NetTestLab/internal/target"
 )
 
 // TrafficCaptureService implements the Connect traffic capture service
 type TrafficCaptureService struct {
 	deviceManager *device.Manager
+	targetManager *target.Manager
 }
 
 // NewTrafficCaptureService creates a new traffic capture service
@@ -22,17 +24,33 @@ func NewTrafficCaptureService(dataDir string) (*TrafficCaptureService, error) {
 		return nil, fmt.Errorf("failed to create device manager: %w", err)
 	}
 
+	targetManager, err := target.NewManager(dataDir)
+	if err != nil {
+		deviceManager.Close()
+		return nil, fmt.Errorf("failed to create target manager: %w", err)
+	}
+
 	return &TrafficCaptureService{
 		deviceManager: deviceManager,
+		targetManager: targetManager,
 	}, nil
 }
 
 // Close closes the service and its resources
 func (s *TrafficCaptureService) Close() error {
+	var err1, err2 error
 	if s.deviceManager != nil {
-		return s.deviceManager.Close()
+		err1 = s.deviceManager.Close()
 	}
-	return nil
+	if s.targetManager != nil {
+		err2 = s.targetManager.Close()
+	}
+	
+	// Return first error encountered
+	if err1 != nil {
+		return err1
+	}
+	return err2
 }
 
 // ListDevices returns a list of devices based on filter criteria
@@ -122,5 +140,103 @@ func (s *TrafficCaptureService) DeleteDevice(ctx context.Context, req *connect.R
 	return connect.NewResponse(&nettestlabv1.DeleteDeviceResponse{
 		Success: true,
 		Message: "Device deleted successfully",
+	}), nil
+}
+
+// === URL TARGET MANAGEMENT APIs ===
+
+// CreateUrlTarget creates a new URL target
+func (s *TrafficCaptureService) CreateUrlTarget(ctx context.Context, req *connect.Request[nettestlabv1.CreateUrlTargetRequest]) (*connect.Response[nettestlabv1.CreateUrlTargetResponse], error) {
+	if req.Msg.Name == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("target name is required"))
+	}
+	if req.Msg.HostRegex == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("host regex is required"))
+	}
+
+	// Create target
+	target, created, err := s.targetManager.CreateTarget(
+		req.Msg.Name,
+		req.Msg.Description,
+		req.Msg.HostRegex,
+		req.Msg.Ports,
+		req.Msg.ProtocolFilter,
+		req.Msg.Enabled,
+	)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to create target: %w", err))
+	}
+
+	return connect.NewResponse(&nettestlabv1.CreateUrlTargetResponse{
+		Target:  target,
+		Created: created,
+	}), nil
+}
+
+// ListUrlTargets returns a list of URL targets
+func (s *TrafficCaptureService) ListUrlTargets(ctx context.Context, req *connect.Request[nettestlabv1.ListUrlTargetsRequest]) (*connect.Response[nettestlabv1.ListUrlTargetsResponse], error) {
+	// Set default page size if not specified
+	pageSize := req.Msg.PageSize
+	if pageSize <= 0 || pageSize > 100 {
+		pageSize = 50 // Default page size
+	}
+
+	// Get targets from manager
+	targets, nextPageToken, totalCount, err := s.targetManager.ListTargets(
+		req.Msg.EnabledOnly,
+		int(pageSize),
+		req.Msg.PageToken,
+	)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to list targets: %w", err))
+	}
+
+	return connect.NewResponse(&nettestlabv1.ListUrlTargetsResponse{
+		Targets:       targets,
+		NextPageToken: nextPageToken,
+		TotalCount:    int32(totalCount),
+	}), nil
+}
+
+// UpdateUrlTarget updates an existing URL target
+func (s *TrafficCaptureService) UpdateUrlTarget(ctx context.Context, req *connect.Request[nettestlabv1.UpdateUrlTargetRequest]) (*connect.Response[nettestlabv1.UpdateUrlTargetResponse], error) {
+	if req.Msg.TargetId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("target ID is required"))
+	}
+
+	// Update target
+	target, err := s.targetManager.UpdateTarget(
+		req.Msg.TargetId,
+		req.Msg.Name,
+		req.Msg.Description,
+		req.Msg.HostRegex,
+		req.Msg.Ports,
+		req.Msg.ProtocolFilter,
+		req.Msg.Enabled,
+	)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to update target: %w", err))
+	}
+
+	return connect.NewResponse(&nettestlabv1.UpdateUrlTargetResponse{
+		Target: target,
+	}), nil
+}
+
+// DeleteUrlTarget removes a URL target
+func (s *TrafficCaptureService) DeleteUrlTarget(ctx context.Context, req *connect.Request[nettestlabv1.DeleteUrlTargetRequest]) (*connect.Response[nettestlabv1.DeleteUrlTargetResponse], error) {
+	if req.Msg.TargetId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("target ID is required"))
+	}
+
+	// Delete target
+	err := s.targetManager.DeleteTarget(req.Msg.TargetId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to delete target: %w", err))
+	}
+
+	return connect.NewResponse(&nettestlabv1.DeleteUrlTargetResponse{
+		Success: true,
+		Message: "Target deleted successfully",
 	}), nil
 }
