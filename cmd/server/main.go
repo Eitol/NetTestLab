@@ -60,6 +60,13 @@ func main() {
 	networkService := server.NewNetworkControlService(networkController)
 	profileService := server.NewProfileService(profileManager, networkController)
 	monitoringService := server.NewMonitoringService(networkController)
+	
+	// Create traffic capture service
+	trafficCaptureService, err := server.NewTrafficCaptureService(*dataDir)
+	if err != nil {
+		log.Fatalf("Failed to initialize traffic capture service: %v", err)
+	}
+	defer trafficCaptureService.Close()
 
 	// Create HTTP mux
 	mux := http.NewServeMux()
@@ -71,17 +78,20 @@ func main() {
 	networkPath, networkHandler := nettestlabv1connect.NewNetworkControlServiceHandler(networkService)
 	profilePath, profileHandler := nettestlabv1connect.NewProfileServiceHandler(profileService)
 	monitoringPath, monitoringHandler := nettestlabv1connect.NewMonitoringServiceHandler(monitoringService)
+	trafficCapturePath, trafficCaptureHandler := nettestlabv1connect.NewTrafficCaptureServiceHandler(trafficCaptureService)
 
 	// Mount Connect handlers
 	mux.Handle(networkPath, networkHandler)
 	mux.Handle(profilePath, profileHandler)
 	mux.Handle(monitoringPath, monitoringHandler)
+	mux.Handle(trafficCapturePath, trafficCaptureHandler)
 
 	// Add reflection for easier debugging
 	reflector := grpcreflect.NewStaticReflector(
 		nettestlabv1connect.NetworkControlServiceName,
 		nettestlabv1connect.ProfileServiceName,
 		nettestlabv1connect.MonitoringServiceName,
+		nettestlabv1connect.TrafficCaptureServiceName,
 	)
 	mux.Handle(grpcreflect.NewHandlerV1(reflector))
 	mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))

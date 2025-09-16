@@ -148,6 +148,110 @@
                     </div>
                 </div>
             </div>
+
+            <!-- System Metrics Row -->
+            <div class="row">
+                <!-- CPU & Memory Card -->
+                <div class="col-md-6 col-lg-3 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="card-title mb-0">
+                                <i class="bi bi-cpu"></i> CPU & Memory
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <small class="text-muted">CPU Usage</small>
+                                <div class="progress mb-1" style="height: 8px;">
+                                    <div id="cpuProgressBar" class="progress-bar bg-info" style="width: 0%"></div>
+                                </div>
+                                <small id="cpuPercentage" class="text-muted">0%</small>
+                            </div>
+                            <div>
+                                <small class="text-muted">Memory Usage</small>
+                                <div class="progress mb-1" style="height: 8px;">
+                                    <div id="memoryProgressBar" class="progress-bar bg-warning" style="width: 0%"></div>
+                                </div>
+                                <small id="memoryPercentage" class="text-muted">0%</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Disk & Load Card -->
+                <div class="col-md-6 col-lg-3 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="card-title mb-0">
+                                <i class="bi bi-hdd"></i> Disk & Load
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <small class="text-muted">Disk Usage</small>
+                                <div class="progress mb-1" style="height: 8px;">
+                                    <div id="diskProgressBar" class="progress-bar bg-danger" style="width: 0%"></div>
+                                </div>
+                                <small id="diskPercentage" class="text-muted">0%</small>
+                            </div>
+                            <div>
+                                <small class="text-muted">Load Average (1m)</small>
+                                <div id="loadAverage" class="fw-bold">0.00</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Network Stats Card -->
+                <div class="col-md-6 col-lg-3 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="card-title mb-0">
+                                <i class="bi bi-graph-up"></i> Network Stats
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <small class="text-muted">Active Interfaces</small>
+                                <div id="activeInterfaces" class="fw-bold">0</div>
+                            </div>
+                            <div class="mb-2">
+                                <small class="text-muted">Network Connections</small>
+                                <div id="networkConnections" class="fw-bold">0</div>
+                            </div>
+                            <div>
+                                <small class="text-muted">Avg Utilization</small>
+                                <div id="avgUtilization" class="fw-bold">0%</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NetTestLab Stats Card -->
+                <div class="col-md-6 col-lg-3 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="card-title mb-0">
+                                <i class="bi bi-activity"></i> NetTestLab Stats
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <small class="text-muted">Active Conditions</small>
+                                <div id="activeConditions" class="fw-bold">0</div>
+                            </div>
+                            <div class="mb-2">
+                                <small class="text-muted">Profile Applications</small>
+                                <div id="profileApplications" class="fw-bold">0</div>
+                            </div>
+                            <div>
+                                <small class="text-muted">Success Rate</small>
+                                <div id="successRate" class="fw-bold">0%</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Interfaces Tab -->
@@ -236,6 +340,6 @@
 
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-            <script type="module" src="/static/js/app.js?v=1726408800"></script>
+            <script type="module" src="/static/js/app.js?v=1726409000"></script>
 </body>
 </html>

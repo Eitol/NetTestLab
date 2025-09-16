@@ -106,6 +106,7 @@ class NetTestLabApp {
         window.refreshStatus = this.refreshStatus.bind(this);
         window.loadInterfaces = this.loadInterfaces.bind(this);
         window.loadProfiles = this.loadProfiles.bind(this);
+        window.loadMetrics = this.loadMetrics.bind(this);
         window.createProfile = this.createProfile.bind(this);
         window.editProfile = this.editProfile.bind(this);
         window.deleteProfile = this.deleteProfile.bind(this);
@@ -153,7 +154,82 @@ class NetTestLabApp {
 
     async refreshStatus() {
         await this.loadDashboardData();
+        await this.loadMetrics();
         this.showNotification('Status refreshed', 'success');
+    }
+
+    async loadMetrics() {
+        try {
+            const metrics = await this.connectClient.getMetrics();
+            
+            if (metrics && metrics.system) {
+                // Update CPU metrics
+                const cpuUsage = parseFloat(metrics.system.cpuUsage);
+                document.getElementById('cpuProgressBar').style.width = `${cpuUsage}%`;
+                document.getElementById('cpuPercentage').textContent = `${cpuUsage.toFixed(1)}%`;
+                
+                // Update memory metrics
+                const memoryUsage = parseFloat(metrics.system.memoryUsage);
+                document.getElementById('memoryProgressBar').style.width = `${memoryUsage}%`;
+                document.getElementById('memoryPercentage').textContent = `${memoryUsage.toFixed(1)}%`;
+                
+                // Update disk metrics
+                const diskUsage = parseFloat(metrics.system.diskUsage);
+                document.getElementById('diskProgressBar').style.width = `${diskUsage}%`;
+                document.getElementById('diskPercentage').textContent = `${diskUsage.toFixed(1)}%`;
+                
+                // Update load average
+                if (metrics.system.loadAverage) {
+                    const loadAvg = parseFloat(metrics.system.loadAverage.oneMinute);
+                    document.getElementById('loadAverage').textContent = loadAvg.toFixed(2);
+                }
+                
+                // Update network connections
+                if (metrics.system.networkConnections) {
+                    document.getElementById('networkConnections').textContent = metrics.system.networkConnections;
+                }
+            }
+            
+            // Update interface stats
+            if (metrics && metrics.interfaces) {
+                const activeInterfaces = metrics.interfaces.length;
+                document.getElementById('activeInterfaces').textContent = activeInterfaces;
+                
+                // Calculate average utilization
+                const avgUtil = metrics.interfaces.reduce((sum, iface) => {
+                    return sum + (parseFloat(iface.bandwidth?.utilizationPercent) || 0);
+                }, 0) / activeInterfaces;
+                
+                document.getElementById('avgUtilization').textContent = `${avgUtil.toFixed(1)}%`;
+            }
+            
+            // Update NetTestLab stats
+            if (metrics && metrics.nettestlab) {
+                document.getElementById('activeConditions').textContent = metrics.nettestlab.activeConditions || 0;
+                document.getElementById('profileApplications').textContent = metrics.nettestlab.profileApplications || 0;
+                
+                // Calculate success rate
+                const totalRequests = parseInt(metrics.nettestlab.totalRequests) || 0;
+                const failedRequests = parseInt(metrics.nettestlab.failedRequests) || 0;
+                const successRate = totalRequests > 0 ? ((totalRequests - failedRequests) / totalRequests * 100) : 100;
+                document.getElementById('successRate').textContent = `${successRate.toFixed(1)}%`;
+            }
+            
+            console.log('✅ Metrics loaded successfully');
+        } catch (error) {
+            console.error('Failed to load metrics:', error);
+            // Set default values on error
+            const elementsToReset = [
+                'cpuPercentage', 'memoryPercentage', 'diskPercentage', 'loadAverage',
+                'activeInterfaces', 'networkConnections', 'avgUtilization',
+                'activeConditions', 'profileApplications', 'successRate'
+            ];
+            
+            elementsToReset.forEach(id => {
+                const element = document.getElementById(id);
+                if (element) element.textContent = '0';
+            });
+        }
     }
 
     // gRPC Functions using the gRPC client and ES modules
@@ -363,6 +439,10 @@ class NetTestLabApp {
             
             // Update connection status to show Connect client works
             this.updateConnectionStatus('connected');
+            
+            // Load metrics after successful connection
+            await this.loadMetrics();
+            
             this.showNotification('Services loaded successfully!', 'success');
             
         } catch (error) {

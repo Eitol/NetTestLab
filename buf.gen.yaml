@@ -8,6 +8,10 @@ plugins:
     out: api
     opt:
       - paths=source_relative
+  - plugin: buf.build/connectrpc/go:v1.11.1
+    out: api
+    opt:
+      - paths=source_relative
   - plugin: buf.build/protocolbuffers/python
     out: clients/python/src
   - plugin: buf.build/grpc/python
