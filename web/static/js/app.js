@@ -7,8 +7,10 @@ import { NetTestLabConnectClient } from './connect-client.js';
 
 class NetTestLabApp {
     constructor() {
-        this.connectClient = new NetTestLabConnectClient();
-        this.checkAndRedirectFromGenericHost();
+        this.connectClient = null;
+        this.currentCaptureId = null;
+        this.isCapturing = false;
+        // Don't call init here - it's called from the DOMContentLoaded listener
     }
 
     checkAndRedirectFromGenericHost() {
@@ -91,6 +93,9 @@ class NetTestLabApp {
     async init() {
         console.log('🚀 Initializing NetTestLab Web Interface...');
         
+        // Initialize the Connect client
+        this.connectClient = new NetTestLabConnectClient();
+        
         // Set up event listeners
         this.setupEventListeners();
         
@@ -115,14 +120,41 @@ class NetTestLabApp {
         window.saveProfile = this.saveProfile.bind(this);
         window.resetInterfaceConditions = this.resetInterfaceConditions.bind(this);
         
+        // Traffic capture functions
+        window.startCapture = this.startCapture.bind(this);
+        window.stopCapture = this.stopCapture.bind(this);
+        window.createTarget = this.createTarget.bind(this);
+        window.createDevice = this.createDevice.bind(this);
+        window.editTarget = this.editTarget.bind(this);
+        window.editDevice = this.editDevice.bind(this);
+        window.updateTarget = this.updateTarget.bind(this);
+        window.updateDevice = this.updateDevice.bind(this);
+        window.deleteTarget = this.deleteTarget.bind(this);
+        window.deleteDevice = this.deleteDevice.bind(this);
+        window.registerDiscoveredDevice = this.registerDiscoveredDevice.bind(this);
+        window.loadDevicesAndTargets = this.loadDevicesAndTargets.bind(this);
+        window.loadDevices = this.loadDevices.bind(this);
+        window.loadTargets = this.loadTargets.bind(this);
+        window.showCreateTargetModal = this.showCreateTargetModal.bind(this);
+        window.showCreateDeviceModal = this.showCreateDeviceModal.bind(this);
+        window.showEditTargetModal = this.showEditTargetModal.bind(this);
+        window.showEditDeviceModal = this.showEditDeviceModal.bind(this);
+        window.updateSelectedCount = this.updateSelectedCount.bind(this);
+        
         console.log('✅ Global functions assigned to window object');
     }
 
     // Tab Management
     showTab(tabName) {
-        // Hide all tabs
-        document.querySelectorAll('.tab-content').forEach(tab => {
-            tab.style.display = 'none';
+        console.log(`Switching to tab: ${tabName}`);
+        
+        // Hide all tab content divs
+        const allTabs = ['dashboard-tab', 'interfaces-tab', 'profiles-tab', 'traffic-capture-tab'];
+        allTabs.forEach(tabId => {
+            const tab = document.getElementById(tabId);
+            if (tab) {
+                tab.style.display = 'none';
+            }
         });
 
         // Remove active class from all nav links
@@ -134,6 +166,9 @@ class NetTestLabApp {
         const targetTab = document.getElementById(`${tabName}-tab`);
         if (targetTab) {
             targetTab.style.display = 'block';
+            console.log(`Showing tab: ${tabName}-tab`);
+        } else {
+            console.error(`Tab not found: ${tabName}-tab`);
         }
 
         // Add active class to selected nav link
@@ -149,6 +184,9 @@ class NetTestLabApp {
             this.loadInterfaces();
         } else if (tabName === 'profiles') {
             this.loadProfiles();
+        } else if (tabName === 'traffic-capture') {
+            this.loadDevices();
+            this.loadTargets();
         }
     }
 
@@ -1101,6 +1139,678 @@ class NetTestLabApp {
                 toast.parentNode.removeChild(toast);
             }
         }, 5000);
+    }
+
+    // Traffic Capture Functions
+    async loadDevicesAndTargets() {
+        await this.loadDevices();
+        await this.loadTargets();
+    }
+
+    async loadDevices() {
+        try {
+            // Load all devices from the backend (includes connection status)
+            const devicesResponse = await this.connectClient.listDevices();
+            let allDevices = devicesResponse.devices || [];
+            
+            // Transform devices to include frontend-specific flags
+            const transformedDevices = allDevices.map(device => ({
+                ...device,
+                isConnected: device.connectionStatus === 'DEVICE_CONNECTION_STATUS_CONNECTED',
+                isDeleted: device.isDeleted || false,
+                isTemporary: false // All devices from backend are registered
+            }));
+            
+            // Store current devices list for other functions
+            this.currentDevicesList = transformedDevices;
+            
+            this.renderDevicesList(transformedDevices);
+            this.updateSelectedCount('devices');
+        } catch (error) {
+            console.error('Error loading devices:', error);
+            this.showNotification('Failed to load devices: ' + error.message, 'error');
+            document.getElementById('devicesList').innerHTML = `
+                <div class="text-center text-danger p-3">
+                    <i class="bi bi-exclamation-triangle"></i><br>
+                    Failed to load devices<br>
+                    <small>${error.message}</small>
+                </div>
+            `;
+        }
+    }
+
+    mergeDevicesLists(registeredDevices, connectedDevices) {
+        const deviceMap = new Map();
+        
+        // Add all registered devices
+        registeredDevices.forEach(device => {
+            deviceMap.set(device.macAddress, {
+                ...device,
+                isConnected: false,
+                isDeleted: device.isDeleted || false
+            });
+        });
+        
+        // Add or update with connected devices
+        connectedDevices.forEach(connectedDevice => {
+            const existing = deviceMap.get(connectedDevice.macAddress);
+            if (existing) {
+                // Update existing device with connection status
+                existing.isConnected = true;
+                existing.ipAddress = connectedDevice.ipAddress; // Update current IP
+            } else {
+                // Add new connected device (not in database)
+                deviceMap.set(connectedDevice.macAddress, {
+                    id: `connected-${connectedDevice.macAddress}`,
+                    deviceName: connectedDevice.deviceName || `Unknown Device`,
+                    ipAddress: connectedDevice.ipAddress,
+                    macAddress: connectedDevice.macAddress,
+                    interface: connectedDevice.interface || 'unknown',
+                    deviceType: 'DEVICE_TYPE_OTHER',
+                    isConnected: true,
+                    isDeleted: false,
+                    isTemporary: true // Flag for devices discovered but not registered
+                });
+            }
+        });
+        
+        return Array.from(deviceMap.values()).sort((a, b) => {
+            // Sort: Connected first, then by name
+            if (a.isConnected && !b.isConnected) return -1;
+            if (!a.isConnected && b.isConnected) return 1;
+            return (a.deviceName || a.macAddress).localeCompare(b.deviceName || b.macAddress);
+        });
+    }
+
+    async loadTargets() {
+        try {
+            const targetsResponse = await this.connectClient.listUrlTargets();
+            this.renderTargetsList(targetsResponse.targets || []);
+            this.updateSelectedCount('targets');
+        } catch (error) {
+            console.error('Error loading targets:', error);
+            this.showNotification('Failed to load targets: ' + error.message, 'error');
+            document.getElementById('targetsList').innerHTML = `
+                <div class="text-center text-danger p-3">
+                    <i class="bi bi-exclamation-triangle"></i><br>
+                    Failed to load targets<br>
+                    <small>${error.message}</small>
+                </div>
+            `;
+        }
+    }
+
+    renderDevicesList(devices) {
+        const container = document.getElementById('devicesList');
+        if (!devices || devices.length === 0) {
+            container.innerHTML = `
+                <div class="text-center text-muted p-3">
+                    <i class="bi bi-router"></i><br>
+                    No devices found<br>
+                    <small>Click "Add Device" to register network devices</small>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = devices.map(device => {
+            const isConnected = device.isConnected || false;
+            const isDeleted = device.isDeleted || false;
+            const isTemporary = device.isTemporary || false;
+            
+            const statusBadge = isConnected ? 
+                '<span class="badge bg-success ms-1">Connected</span>' : 
+                '<span class="badge bg-secondary ms-1">Offline</span>';
+            
+            let additionalBadges = '';
+            if (isDeleted) additionalBadges += '<span class="badge bg-warning ms-1">Deleted</span>';
+            if (isTemporary) additionalBadges += '<span class="badge bg-info ms-1">Discovered</span>';
+            
+            const canEdit = !isTemporary; // Can't edit temporary discovered devices
+            const canDelete = !isDeleted && !isTemporary;
+            const canSelect = !isDeleted || isConnected; // Can select if not deleted, or if connected
+            
+            return `
+                <div class="form-check mb-2">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="d-flex align-items-start flex-grow-1">
+                            <input class="form-check-input me-2 mt-1" type="checkbox" id="device-${device.id}" 
+                                   value="${device.id}" onchange="updateSelectedCount('devices')" ${!canSelect ? 'disabled' : ''}>
+                            <label class="form-check-label flex-grow-1" for="device-${device.id}">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-${this.getDeviceIcon(device.deviceType)} me-2"></i>
+                                    <div>
+                                        <strong>${device.deviceName || device.macAddress}</strong>
+                                        ${statusBadge}${additionalBadges}
+                                        <br>
+                                        <small class="text-muted">
+                                            ${device.ipAddress || 'undefined'} - ${device.macAddress}
+                                            ${device.interface ? ` (${device.interface})` : ''}
+                                        </small>
+                                        ${isTemporary ? '<br><small class="text-info">Click "+" to register this discovered device</small>' : ''}
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                        <div class="btn-group btn-group-sm ms-2" role="group">
+                            ${isTemporary ? `
+                                <button class="btn btn-outline-success btn-sm" onclick="registerDiscoveredDevice('${device.macAddress}')" 
+                                        title="Register device">
+                                    <i class="bi bi-plus"></i>
+                                </button>
+                            ` : `
+                                <button class="btn btn-outline-primary btn-sm" onclick="editDevice('${device.id}')" 
+                                        title="Edit device" ${!canEdit ? 'disabled' : ''}>
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-outline-danger btn-sm" onclick="deleteDevice('${device.id}')" 
+                                        title="Delete device" ${!canDelete ? 'disabled' : ''}>
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            `}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    renderTargetsList(targets) {
+        const container = document.getElementById('targetsList');
+        if (!targets || targets.length === 0) {
+            container.innerHTML = `
+                <div class="text-center text-muted p-3">
+                    <i class="bi bi-bullseye"></i><br>
+                    No URL targets found<br>
+                    <small>Click "Create Target" to define traffic patterns</small>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = targets.map(target => `
+            <div class="form-check mb-2">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="d-flex align-items-start flex-grow-1">
+                        <input class="form-check-input me-2 mt-1" type="checkbox" id="target-${target.id}" 
+                               value="${target.id}" onchange="updateSelectedCount('targets')" ${target.enabled === false ? 'disabled' : ''}>
+                        <label class="form-check-label flex-grow-1" for="target-${target.id}">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-bullseye me-2"></i>
+                                <div>
+                                    <strong>${target.name}</strong>
+                                    ${target.enabled === false ? '<span class="badge bg-secondary ms-1">Disabled</span>' : ''}
+                                    <br>
+                                    <small class="text-muted">
+                                        ${target.hostRegex} - Ports: ${target.ports?.join(', ') || 'any'}
+                                    </small>
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                    <div class="btn-group btn-group-sm ms-2" role="group">
+                        <button class="btn btn-outline-primary btn-sm" onclick="editTarget('${target.id}')" 
+                                title="Edit target">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-outline-danger btn-sm" onclick="deleteTarget('${target.id}')" 
+                                title="Delete target">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async startCapture() {
+        try {
+            const form = document.getElementById('captureForm');
+            const formData = new FormData(form);
+            
+            // Get selected devices
+            const selectedDevices = Array.from(document.querySelectorAll('#devicesList input:checked'))
+                .map(input => input.value);
+            
+            // Get selected targets
+            const selectedTargets = Array.from(document.querySelectorAll('#targetsList input:checked'))
+                .map(input => input.value);
+            
+            // Get selected protocols
+            const protocolSelect = document.getElementById('protocols');
+            const selectedProtocols = Array.from(protocolSelect.selectedOptions)
+                .map(option => option.value);
+
+            const captureRequest = {
+                capture_name: document.getElementById('captureName').value,
+                duration: document.getElementById('captureDuration').value,
+                max_size_mb: parseInt(document.getElementById('maxSizeMB').value),
+                device_ids: selectedDevices,
+                url_target_ids: selectedTargets,
+                protocols: selectedProtocols,
+                capture_payload: document.getElementById('capturePayload').checked
+            };
+
+            console.log('Starting capture with request:', captureRequest);
+            const response = await this.connectClient.startCapture(captureRequest);
+            
+            if (response.success) {
+                this.showNotification(`Capture started successfully: ${response.message}`, 'success');
+                this.currentCaptureId = response.captureId;
+                this.updateCaptureUI(true);
+                this.monitorCurrentCapture();
+            } else {
+                this.showNotification(`Failed to start capture: ${response.message}`, 'error');
+            }
+            
+        } catch (error) {
+            console.error('Error starting capture:', error);
+            this.showNotification('Failed to start capture: ' + error.message, 'error');
+        }
+    }
+
+    async stopCapture() {
+        if (!this.currentCaptureId) {
+            this.showNotification('No active capture to stop', 'warning');
+            return;
+        }
+
+        try {
+            const response = await this.connectClient.stopCapture({ capture_id: this.currentCaptureId });
+            this.showNotification('Capture stopped successfully', 'success');
+            this.updateCaptureUI(false);
+            this.currentCaptureId = null;
+            this.loadCaptureHistory();
+        } catch (error) {
+            console.error('Error stopping capture:', error);
+            this.showNotification('Failed to stop capture: ' + error.message, 'error');
+        }
+    }
+
+    updateCaptureUI(isCapturing) {
+        const startBtn = document.getElementById('startCaptureBtn');
+        const stopBtn = document.getElementById('stopCaptureBtn');
+        const form = document.getElementById('captureForm');
+        
+        if (isCapturing) {
+            startBtn.style.display = 'none';
+            stopBtn.style.display = 'block';
+            form.querySelectorAll('input, select').forEach(input => input.disabled = true);
+        } else {
+            startBtn.style.display = 'block';
+            stopBtn.style.display = 'none';
+            form.querySelectorAll('input, select').forEach(input => input.disabled = false);
+        }
+    }
+
+    async monitorCurrentCapture() {
+        if (!this.currentCaptureId) return;
+
+        try {
+            const status = await this.connectClient.getCaptureStatus({ capture_id: this.currentCaptureId });
+            const capture = status.capture;
+            
+            // Update current capture status display
+            const statusContainer = document.getElementById('currentCaptureStatus');
+            const nameSpan = document.getElementById('currentCaptureName');
+            const statusBadge = document.getElementById('currentCaptureStatusBadge');
+            const startTimeSpan = document.getElementById('currentCaptureStartTime');
+            
+            statusContainer.style.display = 'block';
+            nameSpan.textContent = capture.name;
+            statusBadge.textContent = this.formatCaptureStatus(capture.status);
+            statusBadge.className = this.getCaptureStatusClass(capture.status);
+            startTimeSpan.textContent = new Date(capture.startedAt).toLocaleString();
+            
+            // If capture is still running, continue monitoring
+            if (capture.status === 'CAPTURE_STATUS_ACTIVE') {
+                setTimeout(() => this.monitorCurrentCapture(), 2000);
+            } else {
+                // Capture finished
+                this.updateCaptureUI(false);
+                this.currentCaptureId = null;
+                this.loadCaptureHistory();
+            }
+            
+        } catch (error) {
+            console.error('Error monitoring capture:', error);
+        }
+    }
+
+    formatCaptureStatus(status) {
+        const statusMap = {
+            'CAPTURE_STATUS_ACTIVE': 'Running',
+            'CAPTURE_STATUS_COMPLETED': 'Completed',
+            'CAPTURE_STATUS_FAILED': 'Failed',
+            'CAPTURE_STATUS_CANCELLED': 'Cancelled'
+        };
+        return statusMap[status] || status;
+    }
+
+    getCaptureStatusClass(status) {
+        const classMap = {
+            'CAPTURE_STATUS_ACTIVE': 'badge bg-info',
+            'CAPTURE_STATUS_COMPLETED': 'badge bg-success',
+            'CAPTURE_STATUS_FAILED': 'badge bg-danger',
+            'CAPTURE_STATUS_CANCELLED': 'badge bg-warning'
+        };
+        return classMap[status] || 'badge bg-secondary';
+    }
+
+    async loadCaptureHistory() {
+        // This would need to be implemented in the backend
+        // For now, just show a placeholder
+        const container = document.getElementById('captureHistory');
+        container.innerHTML = `
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i>
+                Capture history functionality will be implemented in future versions.
+            </div>
+        `;
+    }
+
+    async createTarget() {
+        try {
+            const target = {
+                name: document.getElementById('targetName').value,
+                description: document.getElementById('targetDescription').value,
+                host_regex: document.getElementById('hostRegex').value,
+                ports: document.getElementById('targetPorts').value.split(',').map(p => parseInt(p.trim())),
+                protocol_filter: document.getElementById('protocolFilter').value,
+                enabled: document.getElementById('targetEnabled').checked
+            };
+
+            console.log('Creating target:', target);
+            const response = await this.connectClient.createUrlTarget(target);
+            
+            if (response.created || response.success) {
+                this.showNotification('URL target created successfully', 'success');
+                bootstrap.Modal.getInstance(document.getElementById('createTargetModal')).hide();
+                this.loadTargets();
+                
+                // Reset form
+                document.getElementById('createTargetForm').reset();
+            } else {
+                this.showNotification('Failed to create URL target', 'error');
+            }
+        } catch (error) {
+            console.error('Error creating target:', error);
+            this.showNotification('Failed to create target: ' + error.message, 'error');
+        }
+    }
+
+    async editTarget(targetId) {
+        try {
+            // Get target details
+            const response = await this.connectClient.getUrlTarget(targetId);
+            const target = response.target;
+            
+            if (!target) {
+                this.showNotification('Target not found', 'error');
+                return;
+            }
+            
+            // Populate edit form
+            document.getElementById('editTargetName').value = target.name || '';
+            document.getElementById('editTargetDescription').value = target.description || '';
+            document.getElementById('editHostRegex').value = target.hostRegex || '';
+            document.getElementById('editTargetPorts').value = target.ports ? target.ports.join(', ') : '';
+            document.getElementById('editProtocolFilter').value = target.protocolFilter || 'ALL';
+            document.getElementById('editTargetEnabled').checked = target.enabled !== false;
+            
+            // Store target ID for update
+            document.getElementById('editTargetForm').dataset.targetId = targetId;
+            
+            // Show edit modal
+            this.showEditTargetModal();
+            
+        } catch (error) {
+            console.error('Error loading target for edit:', error);
+            this.showNotification('Failed to load target: ' + error.message, 'error');
+        }
+    }
+
+    async updateTarget() {
+        try {
+            const form = document.getElementById('editTargetForm');
+            const targetId = form.dataset.targetId;
+            
+            const targetData = {
+                name: document.getElementById('editTargetName').value,
+                description: document.getElementById('editTargetDescription').value,
+                host_regex: document.getElementById('editHostRegex').value,
+                ports: document.getElementById('editTargetPorts').value.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p)),
+                protocol_filter: document.getElementById('editProtocolFilter').value,
+                enabled: document.getElementById('editTargetEnabled').checked
+            };
+
+            console.log('Updating target:', targetId, targetData);
+            const response = await this.connectClient.updateUrlTarget(targetId, targetData);
+            
+            if (response.updated || response.success) {
+                this.showNotification('Target updated successfully', 'success');
+                bootstrap.Modal.getInstance(document.getElementById('editTargetModal')).hide();
+                this.loadTargets();
+            } else {
+                this.showNotification('Failed to update target: ' + (response.message || 'Unknown error'), 'error');
+            }
+            
+        } catch (error) {
+            console.error('Error updating target:', error);
+            this.showNotification('Failed to update target: ' + error.message, 'error');
+        }
+    }
+
+    async deleteTarget(targetId) {
+        if (!confirm('Are you sure you want to delete this URL target?')) {
+            return;
+        }
+
+        try {
+            console.log('Deleting target:', targetId);
+            const response = await this.connectClient.deleteUrlTarget(targetId);
+            
+            if (response.deleted || response.success) {
+                this.showNotification('Target deleted successfully', 'success');
+                this.loadTargets(); // Reload to show updated list
+            } else {
+                this.showNotification('Failed to delete target: ' + (response.message || 'Unknown error'), 'error');
+            }
+            
+        } catch (error) {
+            console.error('Error deleting target:', error);
+            this.showNotification('Failed to delete target: ' + error.message, 'error');
+        }
+    }
+
+    async createDevice() {
+        try {
+            const deviceData = {
+                device_name: document.getElementById('deviceName').value,
+                description: document.getElementById('deviceDescription').value,
+                ip_address: document.getElementById('deviceIpAddress').value,
+                mac_address: document.getElementById('deviceMacAddress').value,
+                interface: document.getElementById('deviceInterface').value,
+                device_type: document.getElementById('deviceType').value,
+                enabled: document.getElementById('deviceEnabled').checked
+            };
+
+            console.log('Creating device:', deviceData);
+            const response = await this.connectClient.createDevice(deviceData);
+            
+            if (response.created || response.success) {
+                this.showNotification('Device added successfully', 'success');
+                bootstrap.Modal.getInstance(document.getElementById('createDeviceModal')).hide();
+                this.loadDevices();
+                
+                // Reset form
+                document.getElementById('createDeviceForm').reset();
+            } else {
+                this.showNotification('Failed to add device: ' + (response.message || 'Unknown error'), 'error');
+            }
+            
+        } catch (error) {
+            console.error('Error creating device:', error);
+            this.showNotification('Failed to add device: ' + error.message, 'error');
+        }
+    }
+
+    async editDevice(deviceId) {
+        try {
+            // Get device details
+            const response = await this.connectClient.getDevice(deviceId);
+            const device = response.device;
+            
+            if (!device) {
+                this.showNotification('Device not found', 'error');
+                return;
+            }
+            
+            // Populate edit form
+            document.getElementById('editDeviceName').value = device.deviceName || '';
+            document.getElementById('editDeviceDescription').value = device.description || '';
+            document.getElementById('editDeviceIpAddress').value = device.ipAddress || '';
+            document.getElementById('editDeviceMacAddress').value = device.macAddress || '';
+            document.getElementById('editDeviceInterface').value = device.interface || '';
+            document.getElementById('editDeviceType').value = device.deviceType || 'DEVICE_TYPE_OTHER';
+            document.getElementById('editDeviceEnabled').checked = device.enabled !== false;
+            
+            // Store device ID for update
+            document.getElementById('editDeviceForm').dataset.deviceId = deviceId;
+            
+            // Show edit modal
+            this.showEditDeviceModal();
+            
+        } catch (error) {
+            console.error('Error loading device for edit:', error);
+            this.showNotification('Failed to load device: ' + error.message, 'error');
+        }
+    }
+
+    async updateDevice() {
+        try {
+            const form = document.getElementById('editDeviceForm');
+            const deviceId = form.dataset.deviceId;
+            
+            const deviceData = {
+                device_name: document.getElementById('editDeviceName').value,
+                description: document.getElementById('editDeviceDescription').value,
+                ip_address: document.getElementById('editDeviceIpAddress').value,
+                mac_address: document.getElementById('editDeviceMacAddress').value,
+                interface: document.getElementById('editDeviceInterface').value,
+                device_type: document.getElementById('editDeviceType').value,
+                enabled: document.getElementById('editDeviceEnabled').checked
+            };
+
+            console.log('Updating device:', deviceId, deviceData);
+            const response = await this.connectClient.updateDevice(deviceId, deviceData);
+            
+            if (response.updated || response.success) {
+                this.showNotification('Device updated successfully', 'success');
+                bootstrap.Modal.getInstance(document.getElementById('editDeviceModal')).hide();
+                this.loadDevices();
+            } else {
+                this.showNotification('Failed to update device: ' + (response.message || 'Unknown error'), 'error');
+            }
+            
+        } catch (error) {
+            console.error('Error updating device:', error);
+            this.showNotification('Failed to update device: ' + error.message, 'error');
+        }
+    }
+
+    async deleteDevice(deviceId) {
+        if (!confirm('Are you sure you want to delete this device? If the device is currently connected, it will still appear in the list.')) {
+            return;
+        }
+
+        try {
+            console.log('Deleting device:', deviceId);
+            const response = await this.connectClient.deleteDevice(deviceId);
+            
+            if (response.deleted || response.success) {
+                this.showNotification('Device deleted successfully', 'success');
+                this.loadDevices(); // Reload to show updated list
+            } else {
+                this.showNotification('Failed to delete device: ' + (response.message || 'Unknown error'), 'error');
+            }
+            
+        } catch (error) {
+            console.error('Error deleting device:', error);
+            this.showNotification('Failed to delete device: ' + error.message, 'error');
+        }
+    }
+
+    async registerDiscoveredDevice(macAddress) {
+        try {
+            // Find the discovered device in the current list
+            const devicesList = this.currentDevicesList || [];
+            const discoveredDevice = devicesList.find(d => d.macAddress === macAddress && d.isTemporary);
+            
+            if (!discoveredDevice) {
+                this.showNotification('Discovered device not found', 'error');
+                return;
+            }
+            
+            // Pre-populate the form with discovered device info
+            document.getElementById('deviceName').value = discoveredDevice.deviceName || 'Discovered Device';
+            document.getElementById('deviceDescription').value = 'Auto-discovered network device';
+            document.getElementById('deviceIpAddress').value = discoveredDevice.ipAddress || '';
+            document.getElementById('deviceMacAddress').value = discoveredDevice.macAddress;
+            document.getElementById('deviceInterface').value = discoveredDevice.interface || 'unknown';
+            document.getElementById('deviceType').value = 'DEVICE_TYPE_OTHER';
+            document.getElementById('deviceEnabled').checked = true;
+            
+            // Show the create device modal
+            this.showCreateDeviceModal();
+            
+        } catch (error) {
+            console.error('Error registering discovered device:', error);
+            this.showNotification('Failed to register device: ' + error.message, 'error');
+        }
+    }
+
+    showCreateTargetModal() {
+        const modal = new bootstrap.Modal(document.getElementById('createTargetModal'));
+        modal.show();
+    }
+
+    showCreateDeviceModal() {
+        const modal = new bootstrap.Modal(document.getElementById('createDeviceModal'));
+        modal.show();
+    }
+
+    showEditTargetModal() {
+        const modal = new bootstrap.Modal(document.getElementById('editTargetModal'));
+        modal.show();
+    }
+
+    showEditDeviceModal() {
+        const modal = new bootstrap.Modal(document.getElementById('editDeviceModal'));
+        modal.show();
+    }
+
+    updateSelectedCount(type) {
+        if (type === 'devices') {
+            const selectedDevices = document.querySelectorAll('#devicesList input:checked').length;
+            document.getElementById('selectedDevicesCount').textContent = selectedDevices;
+        } else if (type === 'targets') {
+            const selectedTargets = document.querySelectorAll('#targetsList input:checked').length;
+            document.getElementById('selectedTargetsCount').textContent = selectedTargets;
+        }
+    }
+
+    getDeviceIcon(deviceType) {
+        const icons = {
+            'DEVICE_TYPE_MOBILE': 'phone',
+            'DEVICE_TYPE_LAPTOP': 'laptop',
+            'DEVICE_TYPE_DESKTOP': 'pc-display',
+            'DEVICE_TYPE_TABLET': 'tablet',
+            'DEVICE_TYPE_IOT': 'cpu',
+            'DEVICE_TYPE_OTHER': 'router',
+            'DEVICE_TYPE_UNSPECIFIED': 'router'
+        };
+        return icons[deviceType] || 'router';
     }
 }
 

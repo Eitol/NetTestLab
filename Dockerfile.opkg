@@ -98,7 +98,7 @@ RUN echo "Testing opkg-build installation..." && which opkg-build
 WORKDIR /workspace
 
 # Copy build script (this will be the only layer that changes frequently)
-COPY scripts/build-openwrt-package-docker.sh /build-package.sh
+COPY scripts/build-openwrt-package.sh /build-package.sh
 RUN chmod +x /build-package.sh
 
 # Default command

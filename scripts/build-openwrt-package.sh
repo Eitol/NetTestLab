@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# NetTestLab OpenWRT Package Builder
-# Builds IPK package for OpenWRT installation
+# NetTestLab OpenWRT Package Builder (Docker version)
+# Builds IPK package inside Docker container with proper opkg-build
 
 set -e
 
@@ -12,70 +12,83 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-PROJECT_ROOT="/Users/hector/NetTestLab"
-OPENWRT_DIR="$PROJECT_ROOT/openwrt"
-BUILD_DIR="$OPENWRT_DIR/build"
-PACKAGE_DIR="$BUILD_DIR/package"
-CONTROL_DIR="$PACKAGE_DIR/CONTROL"
-DATA_DIR="$PACKAGE_DIR/data"
-
-# Package metadata
-PACKAGE_NAME="nettestlab"
-VERSION="1.0.0"
-RELEASE="1"
-ARCHITECTURE="aarch64"  # Target router architecture
+# Package metadata (from environment variables)
+PACKAGE_NAME="${PACKAGE_NAME:-nettestlab}"
+VERSION="${VERSION:-1.0.0}"
+RELEASE="${RELEASE:-1}"
+ARCHITECTURE="${ARCHITECTURE:-aarch64}"
 PACKAGE_FILE="${PACKAGE_NAME}_${VERSION}-${RELEASE}_${ARCHITECTURE}.ipk"
 
-echo -e "${BLUE}🔨 NetTestLab OpenWRT Package Builder${NC}"
-echo "========================================"
+echo -e "${BLUE}🔨 NetTestLab OpenWRT Package Builder (Docker)${NC}"
+echo "=================================================="
+echo "Architecture: $ARCHITECTURE"
+echo "Package: $PACKAGE_FILE"
 
-# Clean previous builds
-echo -e "${YELLOW}🧹 Cleaning previous builds...${NC}"
-rm -rf "$BUILD_DIR"
-mkdir -p "$CONTROL_DIR" "$DATA_DIR"
-
-# Build the Go binary for ARM64
-echo -e "${YELLOW}📦 Building Go binary for ARM64...${NC}"
-cd "$PROJECT_ROOT"
-GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "$DATA_DIR/usr/bin/nettestlab" ./cmd/server
-
-if [ ! -f "$DATA_DIR/usr/bin/nettestlab" ]; then
-    echo -e "${RED}❌ Failed to build binary${NC}"
+# Verify binary exists
+if [ ! -f "/workspace/nettestlab" ]; then
+    echo -e "${RED}❌ Binary not found: /workspace/nettestlab${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}✅ Binary built successfully${NC}"
+# Create package directory structure
+PACKAGE_DIR="/tmp/package"
+rm -rf "$PACKAGE_DIR"
+mkdir -p "$PACKAGE_DIR"
 
-# Copy package files
-echo -e "${YELLOW}📁 Copying package files...${NC}"
+# Create data directory structure
+mkdir -p "$PACKAGE_DIR/usr/bin"
+mkdir -p "$PACKAGE_DIR/etc/init.d"
+mkdir -p "$PACKAGE_DIR/etc/config"
+mkdir -p "$PACKAGE_DIR/etc/uci-defaults"
 
-# Create directory structure
-mkdir -p "$DATA_DIR/usr/bin"
-mkdir -p "$DATA_DIR/etc/init.d"
-mkdir -p "$DATA_DIR/etc/config"
-mkdir -p "$DATA_DIR/etc/uci-defaults"
+# Copy binary
+echo -e "${YELLOW}📦 Copying binary...${NC}"
+cp "/workspace/nettestlab" "$PACKAGE_DIR/usr/bin/"
+chmod 755 "$PACKAGE_DIR/usr/bin/nettestlab"
 
-# Copy files
-cp "$OPENWRT_DIR/files/etc/init.d/nettestlab" "$DATA_DIR/etc/init.d/"
-cp "$OPENWRT_DIR/files/etc/config/nettestlab" "$DATA_DIR/etc/config/"
-cp "$OPENWRT_DIR/files/etc/uci-defaults/nettestlab" "$DATA_DIR/etc/uci-defaults/"
+# Copy configuration files
+echo -e "${YELLOW}📁 Copying configuration files...${NC}"
+if [ -f "/workspace/files/etc/init.d/nettestlab" ]; then
+    cp "/workspace/files/etc/init.d/nettestlab" "$PACKAGE_DIR/etc/init.d/"
+    chmod 755 "$PACKAGE_DIR/etc/init.d/nettestlab"
+fi
 
-# Set correct permissions
-chmod 755 "$DATA_DIR/usr/bin/nettestlab"
-chmod 755 "$DATA_DIR/etc/init.d/nettestlab"
-chmod 644 "$DATA_DIR/etc/config/nettestlab"
-chmod 755 "$DATA_DIR/etc/uci-defaults/nettestlab"
+if [ -f "/workspace/files/etc/config/nettestlab" ]; then
+    cp "/workspace/files/etc/config/nettestlab" "$PACKAGE_DIR/etc/config/"
+    chmod 644 "$PACKAGE_DIR/etc/config/nettestlab"
+fi
+
+if [ -f "/workspace/files/etc/uci-defaults/nettestlab" ]; then
+    cp "/workspace/files/etc/uci-defaults/nettestlab" "$PACKAGE_DIR/etc/uci-defaults/"
+    chmod 755 "$PACKAGE_DIR/etc/uci-defaults/nettestlab"
+fi
+
+# Copy web interface files
+echo -e "${YELLOW}🌐 Copying web interface files...${NC}"
+if [ -d "/workspace/web" ]; then
+    mkdir -p "$PACKAGE_DIR/usr/share/nettestlab/web"
+    cp -r "/workspace/web/"* "$PACKAGE_DIR/usr/share/nettestlab/web/"
+    find "$PACKAGE_DIR/usr/share/nettestlab/web" -type f -exec chmod 644 {} \;
+    find "$PACKAGE_DIR/usr/share/nettestlab/web" -type d -exec chmod 755 {} \;
+    echo "Web interface copied to /usr/share/nettestlab/web"
+else
+    echo "Warning: Web directory not found, web interface will not be available"
+fi
+
+# Create DEBIAN directory for control files
+mkdir -p "$PACKAGE_DIR/DEBIAN"
 
 # Create control file
 echo -e "${YELLOW}📝 Creating control file...${NC}"
-cat > "$CONTROL_DIR/control" << EOF
+INSTALLED_SIZE=$(du -k "$PACKAGE_DIR" | tail -1 | cut -f1)
+cat > "$PACKAGE_DIR/DEBIAN/control" << EOF
 Package: $PACKAGE_NAME
 Version: $VERSION-$RELEASE
 Depends: tc-bpf, kmod-sched-core, kmod-ifb
 License: MIT
 Section: net
 Architecture: $ARCHITECTURE
-Installed-Size: $(du -k "$DATA_DIR" | tail -1 | cut -f1)
+Installed-Size: $INSTALLED_SIZE
 Maintainer: NetTestLab Team
 Description: Network Testing Laboratory gRPC Server
  NetTestLab is a gRPC server for controlling network conditions on OpenWRT routers.
@@ -91,19 +104,33 @@ Description: Network Testing Laboratory gRPC Server
 EOF
 
 # Create conffiles
-echo "/etc/config/nettestlab" > "$CONTROL_DIR/conffiles"
+if [ -f "$PACKAGE_DIR/etc/config/nettestlab" ]; then
+    echo "/etc/config/nettestlab" > "$PACKAGE_DIR/DEBIAN/conffiles"
+fi
 
 # Create postinst script
-cat > "$CONTROL_DIR/postinst" << 'EOF'
+cat > "$PACKAGE_DIR/DEBIAN/postinst" << 'EOF'
 #!/bin/sh
 if [ -z "${IPKG_INSTROOT}" ]; then
 	echo "Enabling NetTestLab service..."
 	/etc/init.d/nettestlab enable
 	
-	# Run uci-defaults
+	# Handle configuration file conflicts
+	if [ -f /etc/config/nettestlab-opkg ]; then
+		echo "Note: New configuration saved as /etc/config/nettestlab-opkg"
+		echo "Compare with existing config: diff /etc/config/nettestlab /etc/config/nettestlab-opkg"
+	fi
+	
+	# Run uci-defaults with error handling
 	if [ -f /etc/uci-defaults/nettestlab ]; then
-		/bin/sh /etc/uci-defaults/nettestlab
-		rm -f /etc/uci-defaults/nettestlab
+		echo "Running post-installation configuration..."
+		if /bin/sh /etc/uci-defaults/nettestlab; then
+			rm -f /etc/uci-defaults/nettestlab
+			echo "Configuration completed successfully"
+		else
+			echo "Warning: Some configuration steps failed, but service should still work"
+			rm -f /etc/uci-defaults/nettestlab
+		fi
 	fi
 	
 	echo "NetTestLab installed successfully!"
@@ -114,7 +141,7 @@ exit 0
 EOF
 
 # Create prerm script
-cat > "$CONTROL_DIR/prerm" << 'EOF'
+cat > "$PACKAGE_DIR/DEBIAN/prerm" << 'EOF'
 #!/bin/sh
 if [ -z "${IPKG_INSTROOT}" ]; then
 	echo "Stopping NetTestLab service..."
@@ -125,7 +152,7 @@ exit 0
 EOF
 
 # Create postrm script
-cat > "$CONTROL_DIR/postrm" << 'EOF'
+cat > "$PACKAGE_DIR/DEBIAN/postrm" << 'EOF'
 #!/bin/sh
 if [ -z "${IPKG_INSTROOT}" ]; then
 	# Remove firewall rule
@@ -142,80 +169,31 @@ exit 0
 EOF
 
 # Set permissions for control scripts
-chmod 755 "$CONTROL_DIR/postinst"
-chmod 755 "$CONTROL_DIR/prerm" 
-chmod 755 "$CONTROL_DIR/postrm"
+chmod 755 "$PACKAGE_DIR/DEBIAN/postinst"
+chmod 755 "$PACKAGE_DIR/DEBIAN/prerm" 
+chmod 755 "$PACKAGE_DIR/DEBIAN/postrm"
 
-# Create data.tar.gz
-echo -e "${YELLOW}📦 Creating package structure...${NC}"
+# Build the package using opkg-build
+echo -e "${YELLOW}📦 Building IPK package with opkg-build...${NC}"
+cd /tmp
 
-# Instead of creating tar files manually, prepare the package directory structure
-# that opkg-build expects
-PACKAGE_ROOT="$BUILD_DIR/package_root"
-rm -rf "$PACKAGE_ROOT"
-mkdir -p "$PACKAGE_ROOT"
-
-# Copy data files to package root
-cp -r "$DATA_DIR"/* "$PACKAGE_ROOT/"
-
-# Copy control files to DEBIAN directory (opkg-build expects this structure)
-mkdir -p "$PACKAGE_ROOT/DEBIAN"
-cp -r "$CONTROL_DIR"/* "$PACKAGE_ROOT/DEBIAN/"
-
-# Create the IPK package using opkg-build
-echo -e "${YELLOW}📦 Creating IPK package with opkg-build...${NC}"
-cd "$BUILD_DIR"
-
-# Check if opkg-build is available
-if command -v opkg-build >/dev/null 2>&1; then
-    # Use opkg-build (preferred method)
-    opkg-build "$PACKAGE_ROOT" .
-    
-    # Find the generated package
-    GENERATED_PACKAGE=$(find . -name "*.ipk" -type f | head -1)
-    if [ -n "$GENERATED_PACKAGE" ]; then
-        mv "$GENERATED_PACKAGE" "$PACKAGE_FILE"
-    fi
-else
-    echo -e "${YELLOW}⚠️  opkg-build not found, attempting manual creation...${NC}"
-    
-    # Create tarballs manually as fallback
-    cd "$PACKAGE_ROOT"
-    tar -czf "$BUILD_DIR/data.tar.gz" --exclude=DEBIAN .
-    
-    cd "$PACKAGE_ROOT/DEBIAN"
-    tar -czf "$BUILD_DIR/control.tar.gz" .
-    
-    cd "$BUILD_DIR"
-    echo "2.0" > debian-binary
-    
-    # Check if archives exist
-    if [ ! -f "control.tar.gz" ] || [ ! -f "data.tar.gz" ]; then
-        echo -e "${RED}❌ Missing archive files${NC}"
-        ls -la
+# Run opkg-build
+if opkg-build "$PACKAGE_DIR" "/tmp" ; then
+    if [ -f "/tmp/$PACKAGE_FILE" ]; then
+        echo -e "${GREEN}✅ Package created successfully: $PACKAGE_FILE${NC}"
+        echo -e "${GREEN}📏 Package size: $(du -h "/tmp/$PACKAGE_FILE" | cut -f1)${NC}"
+        
+        # Copy to output directory
+        cp "/tmp/$PACKAGE_FILE" "/workspace/"
+        echo -e "${GREEN}📦 Package available at: /workspace/$PACKAGE_FILE${NC}"
+    else
+        echo -e "${RED}❌ Package file not found after build${NC}"
+        echo "Files in /tmp:"
+        ls -la /tmp/*.ipk 2>/dev/null || echo "No IPK files found"
         exit 1
     fi
-    
-    # Use ar with specific options for OpenWrt compatibility
-    if command -v ar >/dev/null 2>&1; then
-        # Create IPK using ar (preferred method)
-        ar rcs "$PACKAGE_FILE" debian-binary control.tar.gz data.tar.gz
-    else
-        # Fallback: create using tar (less ideal but works)
-        echo -e "${YELLOW}⚠️  ar not found, using tar fallback${NC}"
-        tar -cf "$PACKAGE_FILE" debian-binary control.tar.gz data.tar.gz
-    fi
-fi
-
-if [ -f "$PACKAGE_FILE" ]; then
-    echo -e "${GREEN}✅ Package created successfully: $PACKAGE_FILE${NC}"
-    echo -e "${GREEN}📏 Package size: $(du -h "$PACKAGE_FILE" | cut -f1)${NC}"
-    
-    # Move to project root for easy access
-    mv "$PACKAGE_FILE" "$PROJECT_ROOT/"
-    echo -e "${GREEN}📦 Package available at: $PROJECT_ROOT/$PACKAGE_FILE${NC}"
 else
-    echo -e "${RED}❌ Failed to create package${NC}"
+    echo -e "${RED}❌ opkg-build failed${NC}"
     exit 1
 fi
 
@@ -226,7 +204,4 @@ echo "  Version: $VERSION-$RELEASE"
 echo "  Architecture: $ARCHITECTURE"
 echo "  File: $PACKAGE_FILE"
 echo ""
-echo -e "${BLUE}🚀 Next steps:${NC}"
-echo "  1. Copy package to router: scp $PACKAGE_FILE root@192.168.1.4:/tmp/"
-echo "  2. Install on router: ssh root@192.168.1.4 'opkg install /tmp/$PACKAGE_FILE'"
-echo "  3. Start service: ssh root@192.168.1.4 '/etc/init.d/nettestlab start'"
+echo -e "${GREEN}🎉 Package built successfully!${NC}"

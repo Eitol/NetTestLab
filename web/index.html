@@ -50,6 +50,11 @@
                             <i class="bi bi-collection"></i> Profiles
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="showTab('traffic-capture')">
+                            <i class="bi bi-record-circle"></i> Traffic Capture
+                        </a>
+                    </li>
                 </ul>
                 <span class="navbar-text">
                     <span id="connectionStatus" class="badge bg-success">
@@ -318,6 +323,189 @@
                 </div>
             </div>
         </div>
+
+        <!-- Traffic Capture Tab -->
+        <div id="traffic-capture-tab" class="tab-content" style="display: none;">
+            <div class="row">
+                <!-- Capture Control Panel -->
+                <div class="col-md-6 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-record-circle"></i> Traffic Capture Control
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info mb-3">
+                                <i class="bi bi-info-circle"></i>
+                                Capture network traffic for analysis. Configure devices, targets, and capture settings.
+                            </div>
+                            
+                            <form id="captureForm">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="captureName" class="form-label">Capture Name</label>
+                                        <input type="text" class="form-control" id="captureName" placeholder="my-capture" required>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="captureDuration" class="form-label">Duration</label>
+                                        <input type="text" class="form-control" id="captureDuration" placeholder="30s" required>
+                                    </div>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="maxSizeMB" class="form-label">Max Size (MB)</label>
+                                        <input type="number" class="form-control" id="maxSizeMB" placeholder="10" min="1" max="100" required>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="protocols" class="form-label">Protocols</label>
+                                        <select multiple class="form-select" id="protocols">
+                                            <option value="tcp" selected>TCP</option>
+                                            <option value="udp">UDP</option>
+                                            <option value="icmp">ICMP</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="capturePayload" checked>
+                                        <label class="form-check-label" for="capturePayload">
+                                            Capture Full Payload
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="d-grid gap-2">
+                                    <button type="button" class="btn btn-success" id="startCaptureBtn" onclick="startCapture()">
+                                        <i class="bi bi-play-circle"></i> Start Capture
+                                    </button>
+                                    <button type="button" class="btn btn-danger" id="stopCaptureBtn" onclick="stopCapture()" style="display: none;">
+                                        <i class="bi bi-stop-circle"></i> Stop Capture
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Device Management -->
+                <div class="col-md-6 mb-4">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-router"></i> Network Devices
+                            </h5>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" onclick="loadDevices()">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                                </button>
+                                <button class="btn btn-outline-success" onclick="showCreateDeviceModal()">
+                                    <i class="bi bi-plus-circle"></i> Add Device
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <small class="text-muted">
+                                    <i class="bi bi-info-circle"></i> 
+                                    Select devices to monitor during traffic capture
+                                </small>
+                            </div>
+                            <div id="devicesList" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+                                <div class="text-muted text-center p-3">
+                                    <i class="bi bi-router"></i><br>
+                                    Loading devices...
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <small class="text-muted">
+                                    Selected: <span id="selectedDevicesCount" class="fw-bold">0</span> device(s)
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Target Management -->
+                <div class="col-md-6 mb-4">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-bullseye"></i> Traffic Targets
+                            </h5>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" onclick="loadTargets()">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                                </button>
+                                <button class="btn btn-outline-success" onclick="showCreateTargetModal()">
+                                    <i class="bi bi-plus-circle"></i> Create Target
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <small class="text-muted">
+                                    <i class="bi bi-info-circle"></i> 
+                                    Define URL patterns to capture specific traffic
+                                </small>
+                            </div>
+                            <div id="targetsList" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+                                <div class="text-muted text-center p-3">
+                                    <i class="bi bi-bullseye"></i><br>
+                                    Loading targets...
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <small class="text-muted">
+                                    Selected: <span id="selectedTargetsCount" class="fw-bold">0</span> target(s)
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Capture Status & Results -->
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-list-task"></i> Capture Status & History
+                            </h5>
+                            <button class="btn btn-outline-primary btn-sm" onclick="loadCaptureHistory()">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div id="currentCaptureStatus" class="alert alert-secondary mb-3" style="display: none;">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>Current Capture:</strong> <span id="currentCaptureName"></span>
+                                    </div>
+                                    <div>
+                                        <span class="badge bg-info" id="currentCaptureStatusBadge">Running</span>
+                                    </div>
+                                </div>
+                                <div class="mt-2">
+                                    <small class="text-muted">Started: <span id="currentCaptureStartTime"></span></small>
+                                </div>
+                                <div class="progress mt-2" style="height: 5px;">
+                                    <div class="progress-bar progress-bar-striped progress-bar-animated" id="captureProgress" style="width: 0%;"></div>
+                                </div>
+                            </div>
+                            
+                            <div id="captureHistory">
+                                <div class="alert alert-secondary">
+                                    <i class="bi bi-info-circle"></i>
+                                    Click "Refresh" to load capture history.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Results Modal -->
@@ -333,6 +521,240 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create URL Target Modal -->
+    <div class="modal fade" id="createTargetModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create URL Target</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createTargetForm">
+                        <div class="mb-3">
+                            <label for="targetName" class="form-label">Target Name</label>
+                            <input type="text" class="form-control" id="targetName" placeholder="my-target" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="targetDescription" class="form-label">Description</label>
+                            <textarea class="form-control" id="targetDescription" rows="2" placeholder="Description of the target"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="hostRegex" class="form-label">Host Regex</label>
+                            <input type="text" class="form-control" id="hostRegex" placeholder=".*google\.com.*" required>
+                            <small class="form-text text-muted">Regular expression to match target hosts</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="targetPorts" class="form-label">Ports</label>
+                            <input type="text" class="form-control" id="targetPorts" placeholder="80,443" required>
+                            <small class="form-text text-muted">Comma-separated list of ports</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="protocolFilter" class="form-label">Protocol Filter</label>
+                            <select class="form-select" id="protocolFilter">
+                                <option value="ALL" selected>All Protocols</option>
+                                <option value="TCP">TCP Only</option>
+                                <option value="UDP">UDP Only</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="targetEnabled" checked>
+                                <label class="form-check-label" for="targetEnabled">
+                                    Enabled
+                                </label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="createTarget()">Create Target</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Device Modal -->
+    <div class="modal fade" id="createDeviceModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Network Device</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createDeviceForm">
+                        <div class="mb-3">
+                            <label for="deviceName" class="form-label">Device Name</label>
+                            <input type="text" class="form-control" id="deviceName" placeholder="iPhone de Juan" required>
+                            <small class="form-text text-muted">Human-readable name for the device</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="deviceDescription" class="form-label">Description</label>
+                            <textarea class="form-control" id="deviceDescription" rows="2" placeholder="Personal iPhone device"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="deviceIpAddress" class="form-label">IP Address</label>
+                            <input type="text" class="form-control" id="deviceIpAddress" placeholder="192.168.1.100" required>
+                            <small class="form-text text-muted">Current IP address of the device</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="deviceMacAddress" class="form-label">MAC Address</label>
+                            <input type="text" class="form-control" id="deviceMacAddress" placeholder="aa:bb:cc:dd:ee:ff" required>
+                            <small class="form-text text-muted">Hardware MAC address (permanent identifier)</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="deviceInterface" class="form-label">Network Interface</label>
+                            <input type="text" class="form-control" id="deviceInterface" placeholder="wlan0" required>
+                            <small class="form-text text-muted">Network interface to monitor (e.g., eth0, wlan0)</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="deviceType" class="form-label">Device Type</label>
+                            <select class="form-select" id="deviceType">
+                                <option value="DEVICE_TYPE_MOBILE" selected>Mobile Device</option>
+                                <option value="DEVICE_TYPE_LAPTOP">Laptop</option>
+                                <option value="DEVICE_TYPE_DESKTOP">Desktop</option>
+                                <option value="DEVICE_TYPE_TABLET">Tablet</option>
+                                <option value="DEVICE_TYPE_IOT">IoT Device</option>
+                                <option value="DEVICE_TYPE_OTHER">Other</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="deviceEnabled" checked>
+                                <label class="form-check-label" for="deviceEnabled">
+                                    Enable for monitoring
+                                </label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="createDevice()">Add Device</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Device Modal -->
+    <div class="modal fade" id="editDeviceModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Network Device</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editDeviceForm">
+                        <div class="mb-3">
+                            <label for="editDeviceName" class="form-label">Device Name</label>
+                            <input type="text" class="form-control" id="editDeviceName" required>
+                            <small class="form-text text-muted">Human-readable name for the device</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editDeviceDescription" class="form-label">Description</label>
+                            <textarea class="form-control" id="editDeviceDescription" rows="2"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editDeviceIpAddress" class="form-label">IP Address</label>
+                            <input type="text" class="form-control" id="editDeviceIpAddress" required>
+                            <small class="form-text text-muted">Current IP address of the device</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editDeviceMacAddress" class="form-label">MAC Address</label>
+                            <input type="text" class="form-control" id="editDeviceMacAddress" required readonly>
+                            <small class="form-text text-muted">Hardware MAC address (cannot be changed)</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editDeviceInterface" class="form-label">Network Interface</label>
+                            <input type="text" class="form-control" id="editDeviceInterface" required>
+                            <small class="form-text text-muted">Network interface to monitor (e.g., eth0, wlan0)</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editDeviceType" class="form-label">Device Type</label>
+                            <select class="form-select" id="editDeviceType">
+                                <option value="DEVICE_TYPE_MOBILE">Mobile Device</option>
+                                <option value="DEVICE_TYPE_LAPTOP">Laptop</option>
+                                <option value="DEVICE_TYPE_DESKTOP">Desktop</option>
+                                <option value="DEVICE_TYPE_TABLET">Tablet</option>
+                                <option value="DEVICE_TYPE_IOT">IoT Device</option>
+                                <option value="DEVICE_TYPE_OTHER">Other</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="editDeviceEnabled" checked>
+                                <label class="form-check-label" for="editDeviceEnabled">
+                                    Enable for monitoring
+                                </label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="updateDevice()">Update Device</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Target Modal -->
+    <div class="modal fade" id="editTargetModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit URL Target</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editTargetForm">
+                        <div class="mb-3">
+                            <label for="editTargetName" class="form-label">Target Name</label>
+                            <input type="text" class="form-control" id="editTargetName" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editTargetDescription" class="form-label">Description</label>
+                            <textarea class="form-control" id="editTargetDescription" rows="2"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editHostRegex" class="form-label">Host Regex</label>
+                            <input type="text" class="form-control" id="editHostRegex" required>
+                            <small class="form-text text-muted">Regular expression to match target hosts</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editTargetPorts" class="form-label">Ports</label>
+                            <input type="text" class="form-control" id="editTargetPorts" required>
+                            <small class="form-text text-muted">Comma-separated list of ports</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editProtocolFilter" class="form-label">Protocol Filter</label>
+                            <select class="form-select" id="editProtocolFilter">
+                                <option value="ALL">All Protocols</option>
+                                <option value="TCP">TCP Only</option>
+                                <option value="UDP">UDP Only</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="editTargetEnabled" checked>
+                                <label class="form-check-label" for="editTargetEnabled">
+                                    Enabled
+                                </label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="updateTarget()">Update Target</button>
                 </div>
             </div>
         </div>

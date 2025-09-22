@@ -1,0 +1,20 @@
+# NetTestLab Test Configuration
+server:
+  port: 8080
+  host: "0.0.0.0"
+  data_dir: "/tmp/nettestlab"
+
+database:
+  devices: "/tmp/nettestlab/devices.db"
+  targets: "/tmp/nettestlab/targets.db"
+  captures: "/tmp/nettestlab/captures.db"
+
+capture:
+  max_duration: 300  # 5 minutes
+  max_packets: 10000
+  default_interface: "eth0"
+  capture_dir: "/tmp/nettestlab/captures"
+
+logging:
+  level: "info"
+  file: "/tmp/nettestlab/nettestlab.log"

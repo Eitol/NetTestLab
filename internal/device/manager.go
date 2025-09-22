@@ -55,12 +55,43 @@ func (m *Manager) StartPeriodicDiscovery(interval time.Duration) {
 
 // updateDetectedDevices updates the database with newly detected devices
 func (m *Manager) updateDetectedDevices(detected []*DetectedDevice) error {
+	// First, mark all non-registered devices as disconnected
+	err := m.markNonRegisteredDevicesAsDisconnected()
+	if err != nil {
+		fmt.Printf("Warning: failed to mark devices as disconnected: %v\n", err)
+	}
+
+	// Then update/create detected devices as connected
 	for _, device := range detected {
 		err := m.mergeDetectedDevice(device)
 		if err != nil {
 			fmt.Printf("Error merging detected device %s: %v\n", device.MacAddress, err)
 		}
 	}
+	return nil
+}
+
+// markNonRegisteredDevicesAsDisconnected marks all auto-discovered devices as disconnected
+// before updating with current detections
+func (m *Manager) markNonRegisteredDevicesAsDisconnected() error {
+	// Get all non-registered devices
+	nonRegisteredDevices, err := m.db.GetNonRegisteredDevices()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	
+	for _, device := range nonRegisteredDevices {
+		device.ConnectionStatus = int(nettestlabv1.DeviceConnectionStatus_DEVICE_CONNECTION_STATUS_DISCONNECTED)
+		device.LastSeen = &now
+		
+		err := m.db.UpdateDevice(device)
+		if err != nil {
+			fmt.Printf("Warning: failed to mark device %s as disconnected: %v\n", device.MacAddress, err)
+		}
+	}
+	
 	return nil
 }
 

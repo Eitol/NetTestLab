@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -32,47 +33,21 @@ type DetectedDevice struct {
 	IPAddress  string
 	Hostname   string
 	Vendor     string
+	Interface  string
 	LastSeen   time.Time
 }
 
 // ScanConnectedDevices performs a full scan of connected devices
 func (d *Discovery) ScanConnectedDevices() ([]*DetectedDevice, error) {
-	// Get devices from ARP table
-	arpDevices, err := d.scanARPTable()
+	// Get devices from WiFi stations only (like LuCI Associated Stations)
+	wifiDevices, err := d.scanWiFiStations()
 	if err != nil {
-		return nil, fmt.Errorf("failed to scan ARP table: %w", err)
+		return nil, fmt.Errorf("failed to scan WiFi stations: %w", err)
 	}
 
-	// Get devices from DHCP leases
-	dhcpDevices, err := d.scanDHCPLeases()
-	if err != nil {
-		// DHCP scan failure is not critical, log but continue
-		fmt.Printf("Warning: failed to scan DHCP leases: %v\n", err)
-	}
-
-	// Merge ARP and DHCP data
-	deviceMap := make(map[string]*DetectedDevice)
-
-	// Add ARP devices
-	for _, device := range arpDevices {
-		deviceMap[device.MacAddress] = device
-	}
-
-	// Merge DHCP data
-	for _, dhcpDevice := range dhcpDevices {
-		if existing, exists := deviceMap[dhcpDevice.MacAddress]; exists {
-			// Update hostname if available from DHCP
-			if dhcpDevice.Hostname != "" {
-				existing.Hostname = dhcpDevice.Hostname
-			}
-		} else {
-			deviceMap[dhcpDevice.MacAddress] = dhcpDevice
-		}
-	}
-
-	// Convert map to slice
+	// Return only WiFi devices with vendor and hostname resolution
 	var devices []*DetectedDevice
-	for _, device := range deviceMap {
+	for _, device := range wifiDevices {
 		// Lookup vendor information
 		device.Vendor = d.vendorLookup.LookupVendor(device.MacAddress)
 
@@ -87,114 +62,12 @@ func (d *Discovery) ScanConnectedDevices() ([]*DetectedDevice, error) {
 	return devices, nil
 }
 
-// scanARPTable reads the ARP table to find active devices
-func (d *Discovery) scanARPTable() ([]*DetectedDevice, error) {
-	file, err := os.Open(d.arpTablePath)
-	if err != nil {
-		// Return empty list instead of error for non-Linux systems (development)
-		return []*DetectedDevice{}, nil
-	}
-	defer file.Close()
-
-	var devices []*DetectedDevice
-	scanner := bufio.NewScanner(file)
-
-	// Skip header line
-	if scanner.Scan() {
-		// Header: IP address HW type Flags HW address Mask Device
-	}
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		device := d.parseARPLine(line)
-		if device != nil {
-			devices = append(devices, device)
-		}
-	}
-
-	return devices, scanner.Err()
-}
-
-// parseARPLine parses a single line from /proc/net/arp
-func (d *Discovery) parseARPLine(line string) *DetectedDevice {
-	// Example line: "192.168.1.100 0x1 0x2 aa:bb:cc:dd:ee:ff * br-lan"
-	fields := strings.Fields(line)
-	if len(fields) < 4 {
-		return nil
-	}
-
-	ipAddress := fields[0]
-	macAddress := fields[3]
-
-	// Skip incomplete entries (marked with 00:00:00:00:00:00)
-	if macAddress == "00:00:00:00:00:00" {
-		return nil
-	}
-
-	// Validate MAC address format
-	if !d.isValidMACAddress(macAddress) {
-		return nil
-	}
-
-	return &DetectedDevice{
-		MacAddress: strings.ToLower(macAddress),
-		IPAddress:  ipAddress,
-		LastSeen:   time.Now(),
-	}
-}
-
-// scanDHCPLeases reads DHCP lease file to get hostname information
-func (d *Discovery) scanDHCPLeases() ([]*DetectedDevice, error) {
-	file, err := os.Open(d.dhcpLeasePath)
-	if err != nil {
-		// Return empty list instead of error for non-OpenWRT systems (development)
-		return []*DetectedDevice{}, nil
-	}
-	defer file.Close()
-
-	var devices []*DetectedDevice
-	scanner := bufio.NewScanner(file)
-
-	var currentLease *DetectedDevice
-	leaseRegex := regexp.MustCompile(`^lease\s+(\S+)\s+{`)
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Start of a new lease
-		if matches := leaseRegex.FindStringSubmatch(line); matches != nil {
-			currentLease = &DetectedDevice{
-				IPAddress: matches[1],
-				LastSeen:  time.Now(),
-			}
-			continue
-		}
-
-		if currentLease == nil {
-			continue
-		}
-
-		// Parse lease properties
-		if strings.HasPrefix(line, "hardware ethernet") {
-			mac := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(line, "hardware ethernet")), ";")
-			currentLease.MacAddress = strings.ToLower(mac)
-		} else if strings.HasPrefix(line, "client-hostname") {
-			hostname := strings.Trim(strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(line, "client-hostname")), ";"), "\"")
-			currentLease.Hostname = hostname
-		} else if line == "}" && currentLease.MacAddress != "" {
-			// End of lease, add to devices if valid
-			if d.isValidMACAddress(currentLease.MacAddress) {
-				devices = append(devices, currentLease)
-			}
-			currentLease = nil
-		}
-	}
-
-	return devices, scanner.Err()
-}
-
 // resolveHostname attempts to resolve hostname via reverse DNS
 func (d *Discovery) resolveHostname(ipAddress string) string {
+	if ipAddress == "" {
+		return ""
+	}
+	
 	names, err := net.LookupAddr(ipAddress)
 	if err != nil || len(names) == 0 {
 		return ""
@@ -202,9 +75,7 @@ func (d *Discovery) resolveHostname(ipAddress string) string {
 
 	hostname := names[0]
 	// Remove trailing dot if present
-	if strings.HasSuffix(hostname, ".") {
-		hostname = hostname[:len(hostname)-1]
-	}
+	hostname = strings.TrimSuffix(hostname, ".")
 
 	return hostname
 }
@@ -216,23 +87,160 @@ func (d *Discovery) isValidMACAddress(mac string) bool {
 	return macRegex.MatchString(strings.ToLower(mac))
 }
 
+// scanWiFiStations scans for WiFi connected devices using iw command
+func (d *Discovery) scanWiFiStations() ([]*DetectedDevice, error) {
+	var devices []*DetectedDevice
+
+	// Get WiFi interfaces
+	interfaces, err := d.getWiFiInterfaces()
+	if err != nil {
+		return devices, err
+	}
+
+	// Scan each WiFi interface for connected stations
+	for _, iface := range interfaces {
+		stationDevices, err := d.scanWiFiInterface(iface)
+		if err != nil {
+			fmt.Printf("Warning: failed to scan WiFi interface %s: %v\n", iface, err)
+			continue
+		}
+		devices = append(devices, stationDevices...)
+	}
+
+	return devices, nil
+}
+
+// getWiFiInterfaces gets list of WiFi interfaces that are in AP mode
+func (d *Discovery) getWiFiInterfaces() ([]string, error) {
+	// Run "iw dev" to get interface list
+	cmd := exec.Command("iw", "dev")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to run iw dev: %w", err)
+	}
+
+	var interfaces []string
+	lines := strings.Split(string(output), "\n")
+	var currentInterface string
+	isAP := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		
+		// Look for interface name
+		if strings.HasPrefix(line, "Interface ") {
+			currentInterface = strings.TrimPrefix(line, "Interface ")
+			isAP = false
+		}
+		
+		// Check if interface is in AP mode
+		if strings.Contains(line, "type AP") {
+			isAP = true
+		}
+		
+		// If we found an AP interface, add it to the list
+		if currentInterface != "" && isAP && !strings.Contains(line, "Interface ") {
+			// Check if this interface is already added
+			found := false
+			for _, existing := range interfaces {
+				if existing == currentInterface {
+					found = true
+					break
+				}
+			}
+			if !found {
+				interfaces = append(interfaces, currentInterface)
+			}
+		}
+	}
+
+	return interfaces, nil
+}
+
+// scanWiFiInterface scans a specific WiFi interface for connected stations
+func (d *Discovery) scanWiFiInterface(interfaceName string) ([]*DetectedDevice, error) {
+	// Run "iw dev <interface> station dump"
+	cmd := exec.Command("iw", "dev", interfaceName, "station", "dump")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to run iw station dump: %w", err)
+	}
+
+	var devices []*DetectedDevice
+	lines := strings.Split(string(output), "\n")
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		
+		// Look for station MAC addresses
+		if strings.HasPrefix(line, "Station ") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				macAddress := parts[1]
+				
+				// Validate MAC address format
+				if d.isValidMACAddress(macAddress) {
+					// Try to get IP from ARP table for this specific MAC
+					ipAddress := d.getIPFromARP(macAddress)
+					
+					device := &DetectedDevice{
+						MacAddress: strings.ToLower(macAddress),
+						IPAddress:  ipAddress,
+						Interface:  "WiFi", // Mark as WiFi interface
+						LastSeen:   time.Now(),
+					}
+					devices = append(devices, device)
+				}
+			}
+		}
+	}
+
+	return devices, nil
+}
+
+// getIPFromARP tries to find IP address for a MAC address from ARP table
+func (d *Discovery) getIPFromARP(macAddress string) string {
+	file, err := os.Open(d.arpTablePath)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	
+	// Skip header line
+	if scanner.Scan() {
+		// Header: IP address HW type Flags HW address Mask Device
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+		if len(fields) >= 4 {
+			arpMac := strings.ToLower(fields[3])
+			if arpMac == strings.ToLower(macAddress) {
+				return fields[0] // IP address
+			}
+		}
+	}
+
+	return ""
+}
+
 // StartPeriodicScan starts a goroutine that scans for devices periodically
 func (d *Discovery) StartPeriodicScan(interval time.Duration, callback func([]*DetectedDevice)) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		for {
-			select {
-			case <-ticker.C:
-				devices, err := d.ScanConnectedDevices()
-				if err != nil {
-					fmt.Printf("Error scanning devices: %v\n", err)
-					continue
-				}
-				if callback != nil {
-					callback(devices)
-				}
+		for range ticker.C {
+			devices, err := d.ScanConnectedDevices()
+			if err != nil {
+				fmt.Printf("Error scanning devices: %v\n", err)
+				continue
+			}
+			if callback != nil {
+				callback(devices)
 			}
 		}
 	}()

@@ -1,0 +1,43 @@
+# Archivos y directorios a ignorar en el contexto de Docker
+.git
+.gitignore
+.env
+.env.*
+README.md
+CONTRIBUTING.md
+DEVELOPMENT_PLAN.md
+LICENSE
+mkdocs.yml
+docs/
+*.md
+
+# Archivos de construcción
+bin/
+server
+main
+target/
+*.log
+
+# Archivos temporales
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Resultados de tests
+tests/integration/results/
+tests/integration/data/
+
+# Archivos de Go
+go.sum
+vendor/
+
+# Archivos de OpenWRT específicos (excepto los necesarios)
+openwrt/build/
+openwrt/*.ipk

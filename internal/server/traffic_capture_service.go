@@ -7,14 +7,16 @@ import (
 	"connectrpc.com/connect"
 
 	nettestlabv1 "github.com/Eitol/NetTestLab/api/nettestlab/v1"
+	"github.com/Eitol/NetTestLab/internal/capture"
 	"github.com/Eitol/NetTestLab/internal/device"
 	"github.com/Eitol/NetTestLab/internal/target"
 )
 
 // TrafficCaptureService implements the Connect traffic capture service
 type TrafficCaptureService struct {
-	deviceManager *device.Manager
-	targetManager *target.Manager
+	deviceManager  *device.Manager
+	targetManager  *target.Manager
+	captureManager *capture.CaptureManager
 }
 
 // NewTrafficCaptureService creates a new traffic capture service
@@ -30,9 +32,12 @@ func NewTrafficCaptureService(dataDir string) (*TrafficCaptureService, error) {
 		return nil, fmt.Errorf("failed to create target manager: %w", err)
 	}
 
+	captureManager := capture.NewCaptureManager(dataDir, deviceManager, targetManager)
+
 	return &TrafficCaptureService{
-		deviceManager: deviceManager,
-		targetManager: targetManager,
+		deviceManager:  deviceManager,
+		targetManager:  targetManager,
+		captureManager: captureManager,
 	}, nil
 }
 
@@ -239,4 +244,84 @@ func (s *TrafficCaptureService) DeleteUrlTarget(ctx context.Context, req *connec
 		Success: true,
 		Message: "Target deleted successfully",
 	}), nil
+}
+
+// === TRAFFIC CAPTURE APIS ===
+
+// StartCapture inicia una nueva captura de tráfico
+func (s *TrafficCaptureService) StartCapture(
+	ctx context.Context,
+	req *connect.Request[nettestlabv1.StartCaptureRequest],
+) (*connect.Response[nettestlabv1.StartCaptureResponse], error) {
+	resp, err := s.captureManager.StartCapture(ctx, req.Msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to start capture: %w", err))
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
+// StopCapture detiene una captura de tráfico
+func (s *TrafficCaptureService) StopCapture(
+	ctx context.Context,
+	req *connect.Request[nettestlabv1.StopCaptureRequest],
+) (*connect.Response[nettestlabv1.StopCaptureResponse], error) {
+	resp, err := s.captureManager.StopCapture(ctx, req.Msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to stop capture: %w", err))
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
+// GetCaptureStatus obtiene el estado de una captura específica
+func (s *TrafficCaptureService) GetCaptureStatus(
+	ctx context.Context,
+	req *connect.Request[nettestlabv1.GetCaptureStatusRequest],
+) (*connect.Response[nettestlabv1.GetCaptureStatusResponse], error) {
+	resp, err := s.captureManager.GetCaptureStatus(ctx, req.Msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to get capture status: %w", err))
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
+// ListCaptures lista todas las capturas
+func (s *TrafficCaptureService) ListCaptures(
+	ctx context.Context,
+	req *connect.Request[nettestlabv1.ListCapturesRequest],
+) (*connect.Response[nettestlabv1.ListCapturesResponse], error) {
+	resp, err := s.captureManager.ListCaptures(ctx, req.Msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to list captures: %w", err))
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
+// GetCaptureData obtiene los datos de una captura específica
+func (s *TrafficCaptureService) GetCaptureData(
+	ctx context.Context,
+	req *connect.Request[nettestlabv1.GetCaptureDataRequest],
+) (*connect.Response[nettestlabv1.GetCaptureDataResponse], error) {
+	resp, err := s.captureManager.GetCaptureData(ctx, req.Msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to get capture data: %w", err))
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
+// DeleteCapture elimina una captura y opcionalmente sus datos
+func (s *TrafficCaptureService) DeleteCapture(
+	ctx context.Context,
+	req *connect.Request[nettestlabv1.DeleteCaptureRequest],
+) (*connect.Response[nettestlabv1.DeleteCaptureResponse], error) {
+	resp, err := s.captureManager.DeleteCapture(ctx, req.Msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to delete capture: %w", err))
+	}
+
+	return connect.NewResponse(resp), nil
 }

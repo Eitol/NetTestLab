@@ -30,7 +30,7 @@ define Package/nettestlab
   CATEGORY:=Network
   TITLE:=Network traffic control and simulation tool
   URL:=https://github.com/Eitol/NetTestLab
-  DEPENDS:=$(GO_ARCH_DEPENDS) +tc +kmod-sched-core +kmod-ifb +kmod-netem
+  DEPENDS:=$(GO_ARCH_DEPENDS) +tc +kmod-sched-core +kmod-ifb +kmod-netem +tcpdump +libpcap1
   PKGARCH:=all
 endef
 
@@ -41,6 +41,7 @@ define Package/nettestlab/description
   
   Features:
   - Real-time network condition control via gRPC API
+  - Traffic capture and monitoring with tcpdump integration
   - Built-in profiles for common mobile network scenarios (2G, 3G, 4G, WiFi)
   - Custom profile creation and management
   - System monitoring and metrics collection

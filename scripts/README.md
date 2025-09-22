@@ -1,72 +1,43 @@
-# Scripts Directory
+# Scripts
 
-This directory contains utility scripts for building and deploying NetTestLab.
+Utility scripts for NetTestLab deployment and testing.This directory contains utility scripts for building, deploying, and testing NetTestLab.
 
-## Available Scripts
+## Core Scripts
 
-### `build-openwrt-package.sh`
+### `deploy-to-device.sh`
 
-Builds the OpenWrt IPK package for router deployment. This is the main build script that handles the complete package creation process.
+Complete automated deployment to OpenWRT router. Builds package, installs on device, starts service, and runs tests.Complete automated deployment script that handles the entire workflow:
+
+- Detects router architecture automatically  
+
+- Stops existing processes on router
+
+- Builds OpenWRT IPK package using Docker for cross-compilation. (Using build-openwrt-package.sh)
+
+- Installs/updates the package on router
+
+- Starts the service
+
+### `run-integration-test.sh`
+
+Runs comprehensive integration tests against deployed NetTestLab instance.
 
 **Usage:**
 
 ```bash
-# Build package
-./scripts/build-openwrt-package.sh
 
-# Clean build directory
-./scripts/build-openwrt-package.sh clean
+## Usage# Deploy to default router (192.168.1.4)
+
+./scripts/deploy-auto.sh
+
+```bash
+
+# Deploy everything to router# Deploy to custom router
+
+./scripts/deploy-to-device.shROUTER_IP=192.168.1.4 ./scripts/deploy-auto.sh
+
 ```
 
-**Requirements:**
+### `build-openwrt-package.sh`
 
-- Go 1.21+
-- buf CLI
-- binutils (for `ar` command)
-
-**Features:**
-- Cross-compiles Go binary for ARM64
-- Generates Protocol Buffer files
-- Creates proper OpenWrt package structure
-- Includes control files and scripts
-- Validates final IPK package
-
-## Future Scripts
-
-The following scripts may be added in future versions:
-
-### `test-wifi-discovery.sh`
-Tests WiFi auto-discovery functionality on target router.
-
-### `deploy-to-router.sh`
-Automated deployment script for uploading and installing package on router.
-
-### `benchmark.sh`
-Performance benchmarking script for different network conditions.
-
-## Development Workflow
-
-1. **Build package:**
-
-   ```bash
-   ./scripts/build-openwrt-package.sh
-   ```
-
-2. **Deploy to router:**
-
-   ```bash
-   scp nettestlab_1.0.0_aarch64.ipk root@192.168.1.4:/tmp/
-   ssh root@192.168.1.4 "opkg install /tmp/nettestlab_1.0.0_aarch64.ipk"
-   ```
-
-3. **Start service:**
-
-   ```bash
-   ssh root@192.168.1.4 "/etc/init.d/nettestlab start"
-   ```
-
-4. **Test functionality:**
-
-   ```bash
-   go run cmd/wifi-test/main.go -server 192.168.1.4:8080
-   ```
+Builds OpenWRT IPK package using Docker for cross-compilation.

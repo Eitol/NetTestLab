@@ -264,6 +264,41 @@ func (d *Database) DeleteDevice(id string) error {
 	return err
 }
 
+// GetNonRegisteredDevices retrieves all devices that are not manually registered
+func (d *Database) GetNonRegisteredDevices() ([]*DeviceRow, error) {
+	query := `
+	SELECT id, mac_address, ip_address, hostname, device_name, device_model,
+		   os_version, app_version, connection_status, registered, first_seen,
+		   last_seen, registered_at, vendor, previous_ips, created_at, updated_at
+	FROM devices
+	WHERE registered = FALSE
+	`
+
+	rows, err := d.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var devices []*DeviceRow
+	for rows.Next() {
+		device := &DeviceRow{}
+		err := rows.Scan(
+			&device.ID, &device.MacAddress, &device.IPAddress, &device.Hostname,
+			&device.DeviceName, &device.DeviceModel, &device.OSVersion, &device.AppVersion,
+			&device.ConnectionStatus, &device.Registered, &device.FirstSeen,
+			&device.LastSeen, &device.RegisteredAt, &device.Vendor, &device.PreviousIPs,
+			&device.CreatedAt, &device.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		devices = append(devices, device)
+	}
+
+	return devices, rows.Err()
+}
+
 // CountDevices returns the total count of devices matching the filter
 func (d *Database) CountDevices(filter DeviceFilter) (int, error) {
 	query := "SELECT COUNT(*) FROM devices"

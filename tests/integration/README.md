@@ -1,45 +1,292 @@
-# Integration Tests
+# NetTestLab Docker Integration Tests
 
-This directory contains integration tests for NetTestLab that test the complete workflow from building the OpenWrt package to deploying and testing on a real router.
+Este directorio contiene los tests automatizados para NetTestLab que se ejecutan en un entorno Docker con OpenWRT.
 
-## Prerequisites
+## Estructura
 
-### 1. OpenWrt SDK
-
-Download and set up the OpenWrt SDK for your target architecture:
-
-```bash
-# Example for x86_64
-wget https://downloads.openwrt.org/releases/23.05.0/targets/x86/64/openwrt-sdk-23.05.0-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
-tar xf openwrt-sdk-*.tar.xz
-cd openwrt-sdk-*
-
-# Install feeds
-./scripts/feeds update -a
-./scripts/feeds install -a
+```
+tests/integration/
+├── scripts/
+│   ├── run-integration-tests.sh     # Tests principales de funcionalidad
+│   └── run-performance-tests.sh     # Tests de rendimiento y carga
+├── config/
+│   └── nettestlab.yaml              # Configuración para el entorno de test
+├── results/                         # Resultados de los tests (generado)
+└── README.md                        # Esta documentación
 ```
 
-### 2. Test Router
+## Configuración del Entorno
 
-You need a physical OpenWrt router or VM for testing:
-- OpenWrt 23.05 or later
-- SSH access
-- Network connectivity
-- At least 50MB free space
+### Requisitos
 
-### 3. Dependencies
+- Docker y Docker Compose instalados
+- Al menos 2GB de RAM disponible para los contenedores
+- Acceso a Internet para descargar las imágenes de Docker
 
-Install required tools:
+### Imagen Base
+
+Los tests utilizan la imagen oficial de OpenWRT:
+- **Imagen**: `albrechtloh/openwrt-docker:latest`
+- **Propósito**: Simular un router OpenWRT real
+- **Características**: Incluye kernel Linux, iptables, tcpdump y herramientas de red
+
+## Componentes del Test
+
+### 1. Contenedor OpenWRT (`openwrt`)
+
+- **Imagen**: `albrechtloh/openwrt-docker:latest`
+- **Propósito**: Ejecuta NetTestLab en un entorno OpenWRT simulado
+- **Puertos**:
+  - `8080`: Servidor NetTestLab gRPC
+  - `22`: SSH para debugging (opcional)
+- **Volúmenes**:
+  - `./bin/nettestlab`: Binario compilado de NetTestLab
+  - `./tests/integration/config`: Archivos de configuración
+  - `./tests/integration/data`: Datos temporales y capturas
+
+### 2. Cliente de Test (`test-client`)
+
+- **Imagen**: `alpine:latest`
+- **Propósito**: Ejecuta los scripts de test contra el servidor NetTestLab
+- **Herramientas**: curl, jq, bash para interactuar con la API REST/gRPC
+- **Scripts**:
+  - `/tests/run-integration-tests.sh`: Tests de funcionalidad completa
+  - `/tests/run-performance-tests.sh`: Tests de rendimiento
+
+### 3. Generador de Tráfico (`traffic-generator`)
+
+- **Imagen**: `alpine:latest`
+- **Propósito**: Genera tráfico HTTP/HTTPS para probar la captura
+- **Tráfico**: Requests periódicos a servicios externos y internos
+- **Herramientas**: curl, wget, netcat para diferentes tipos de tráfico
+
+## Tests Implementados
+
+### Tests de Funcionalidad (`run-integration-tests.sh`)
+
+1. **Test de Salud**
+   - Verifica que el servidor NetTestLab esté corriendo
+   - Endpoint: `/nettestlab.v1.MonitoringService/GetHealth`
+
+2. **Test de Gestión de Dispositivos**
+   - Lista dispositivos (inicialmente vacío)
+   - Registra un dispositivo de prueba
+   - Valida persistencia en base de datos
+
+3. **Test de Gestión de URL Targets**
+   - Crea targets con patrones regex
+   - Lista targets creados
+   - Valida configuración de filtros
+
+4. **Test de Captura de Tráfico**
+   - Inicia captura con dispositivos y targets específicos
+   - Monitorea el estado de la captura
+   - Detiene captura y valida resultados
+
+5. **Test de Integración del Sistema**
+   - Verifica disponibilidad de tcpdump
+   - Valida interfaces de red
+   - Confirma capacidades del kernel
+
+### Tests de Rendimiento (`run-performance-tests.sh`)
+
+1. **Generación de Datos Masivos**
+   - Registra 50 dispositivos de prueba
+   - Crea 20 URL targets diferentes
+   - Valida escalabilidad
+
+2. **Performance de Listado**
+   - Mide tiempo de respuesta para listar dispositivos
+   - Valida umbral de rendimiento (< 2 segundos)
+
+3. **Capturas Concurrentes**
+   - Ejecuta 5 capturas simultáneas
+   - Valida que el sistema maneja concurrencia
+   - Monitorea recursos
+
+4. **Uso de Memoria**
+   - Simula monitoreo de memoria durante operaciones
+   - (En producción monitorizaría uso real de contenedor)
+
+## Ejecución
+
+### Tests Completos
 
 ```bash
-# On Ubuntu/Debian
-sudo apt-get install sshpass
+# Ejecutar todos los tests desde cero
+make test-docker
 
-# On macOS
-brew install sshpass
+# Limpiar entorno después de tests
+make test-docker-clean
 ```
 
-## Configuration
+### Tests en Entorno Existente
+
+```bash
+# Ejecutar solo tests de funcionalidad
+make test-integration
+
+# Ver logs en tiempo real
+make test-logs
+
+# Ver resultados
+make test-results
+```
+
+### Comandos Docker Directos
+
+```bash
+# Levantar entorno
+docker-compose -f docker-compose.test.yml up -d
+
+# Ejecutar tests manualmente
+docker-compose -f docker-compose.test.yml exec test-client /tests/run-integration-tests.sh
+
+# Ver logs
+docker-compose -f docker-compose.test.yml logs -f openwrt
+
+# Limpiar
+docker-compose -f docker-compose.test.yml down -v
+```
+
+## Resultados de Tests
+
+### Archivos Generados
+
+- `test_report.json`: Reporte completo de tests de funcionalidad
+- `performance_report.json`: Métricas de rendimiento
+- `test_device_id.txt`: ID del dispositivo de prueba creado
+- `test_target_id.txt`: ID del target de prueba creado
+- `test_capture_id.txt`: ID de la captura de prueba
+
+### Formato del Reporte
+
+```json
+{
+  "test_run": {
+    "timestamp": "2024-01-15T10:30:00.000Z",
+    "environment": "docker-openwrt",
+    "total_tests": 15,
+    "passed": 15,
+    "failed": 0,
+    "success_rate": 100.0
+  },
+  "test_categories": {
+    "health": "completed",
+    "device_management": "completed", 
+    "url_targets": "completed",
+    "traffic_capture": "completed",
+    "system_integration": "completed"
+  }
+}
+```
+
+## Debugging
+
+### Acceso al Contenedor OpenWRT
+
+```bash
+# Ejecutar shell en el contenedor
+docker-compose -f docker-compose.test.yml exec openwrt sh
+
+# Ver logs del servidor NetTestLab
+docker-compose -f docker-compose.test.yml exec openwrt tail -f /tmp/nettestlab/nettestlab.log
+
+# Verificar procesos
+docker-compose -f docker-compose.test.yml exec openwrt ps aux | grep nettestlab
+```
+
+### Debugging de Tests
+
+```bash
+# Ejecutar tests paso a paso
+docker-compose -f docker-compose.test.yml exec test-client sh
+cd /tests
+bash -x ./run-integration-tests.sh
+```
+
+### Verificación Manual de APIs
+
+```bash
+# Test de salud
+curl -X POST http://localhost:8080/nettestlab.v1.MonitoringService/GetHealth
+
+# Listar dispositivos
+curl -X POST http://localhost:8080/nettestlab.v1.TrafficCaptureService/ListDevices \
+  -H "Content-Type: application/json" -d '{}'
+```
+
+## Configuración Avanzada
+
+### Variables de Entorno
+
+- `OPENWRT_HOST`: Host del servidor NetTestLab (default: localhost)
+- `OPENWRT_PORT`: Puerto del servidor (default: 8080)
+- `TEST_RESULTS_DIR`: Directorio para resultados (default: /results)
+
+### Personalización de Tests
+
+Para añadir nuevos tests:
+
+1. Editar `run-integration-tests.sh`
+2. Añadir nuevas funciones de test
+3. Llamar las funciones desde `main()`
+4. Actualizar contadores y reportes
+
+### Red Docker
+
+Los contenedores se comunican a través de la red `nettestlab-network`:
+- Subnet: `192.168.100.0/24`
+- Driver: bridge
+- DNS automático entre contenedores
+
+## Solución de Problemas
+
+### Problemas Comunes
+
+1. **"Server is not available"**
+   - Verificar que el binario de NetTestLab está en `./bin/nettestlab`
+   - Comprobar que el contenedor OpenWRT tiene suficiente tiempo para arrancar
+   - Revisar logs: `make test-logs`
+
+2. **"tcpdump not found"**
+   - Verificar que la imagen OpenWRT incluye tcpdump
+   - Comprobar instalación en el comando de inicio
+
+3. **Tests fallan aleatoriamente**
+   - Aumentar timeouts en los scripts
+   - Verificar recursos disponibles del sistema
+   - Comprobar conectividad de red entre contenedores
+
+### Logs Importantes
+
+- **NetTestLab Server**: `/tmp/nettestlab/nettestlab.log`
+- **Docker Compose**: `docker-compose -f docker-compose.test.yml logs`
+- **Test Results**: `./tests/integration/results/`
+
+## Contribución
+
+Para contribuir nuevos tests:
+
+1. Fork del repositorio
+2. Crear branch para el nuevo test
+3. Implementar test siguiendo el patrón existente
+4. Actualizar documentación
+5. Crear Pull Request
+
+Los tests deben ser:
+- **Idempotentes**: Pueden ejecutarse múltiples veces
+- **Aislados**: No dependen del estado de otros tests
+- **Deterministas**: Producen resultados consistentes
+- **Documentados**: Con comentarios claros sobre qué prueban
+
+---
+
+## Tests Legacy de OpenWRT Físico
+
+Esta sección contiene documentación para tests en routers OpenWRT físicos (legacy):
+
+### Configuración Legacy
 
 Set environment variables before running tests:
 
@@ -54,262 +301,14 @@ export NETTESTLAB_ROUTER_PASSWORD="your-password"  # if using password auth
 export SSH_KEY_PATH="/path/to/ssh/key"             # if using key auth
 ```
 
-### Example Configuration Script
+### Legacy Test Scenarios
 
-Create a `test-config.sh` file:
+1. Package Build Test - Compiles package using OpenWrt build system
+2. Package Deployment Test - Installs package via SCP and opkg
+3. Service Status Test - Verifies service health
+4. gRPC Connectivity Test - Tests API responsiveness
+5. Profile Management Test - CRUD operations on profiles
+6. Network Control Test - Applies and verifies network conditions
+7. System Monitoring Test - Retrieves system metrics
 
-```bash
-#!/bin/bash
-# OpenWrt SDK path
-export OPENWRT_SDK_PATH="$HOME/openwrt-sdk-23.05.0-x86-64_gcc-12.3.0_musl.Linux-x86_64"
-
-# Router configuration
-export NETTESTLAB_ROUTER_IP="192.168.1.10"
-export NETTESTLAB_ROUTER_USER="root"
-export NETTESTLAB_ROUTER_PASSWORD="admin123"
-
-# Alternative: SSH key authentication
-# export SSH_KEY_PATH="$HOME/.ssh/id_rsa"
-
-echo "Integration test environment configured"
-echo "Router: $NETTESTLAB_ROUTER_IP"
-echo "SDK: $OPENWRT_SDK_PATH"
-```
-
-## Running Tests
-
-### Full Integration Test
-
-```bash
-# Source configuration
-source test-config.sh
-
-# Run all integration tests
-cd /path/to/NetTestLab
-go test -v ./tests/integration/
-```
-
-### Individual Test Steps
-
-```bash
-# Test individual components
-go test -v ./tests/integration/ -run TestOpenWrtIntegration/BuildPackage
-go test -v ./tests/integration/ -run TestOpenWrtIntegration/DeployPackage
-go test -v ./tests/integration/ -run TestOpenWrtIntegration/GRPCConnectivity
-```
-
-## Test Scenarios
-
-### 1. Package Build Test
-- Copies NetTestLab package to OpenWrt SDK
-- Compiles package using OpenWrt build system
-- Verifies package is created successfully
-
-### 2. Package Deployment Test
-- Copies package to router via SCP
-- Installs package using opkg
-- Verifies installation success
-
-### 3. Service Status Test
-- Checks if NetTestLab service is running
-- Starts service if not running
-- Verifies service health
-
-### 4. gRPC Connectivity Test
-- Connects to NetTestLab gRPC API
-- Tests basic API responsiveness
-- Verifies system health status
-
-### 5. Profile Management Test
-- Lists available profiles
-- Verifies built-in profiles exist
-- Creates, retrieves, and deletes custom profiles
-- Tests profile validation
-
-### 6. Network Control Test
-- Applies custom network conditions
-- Verifies conditions are active
-- Tests profile application
-- Resets network conditions
-
-### 7. System Monitoring Test
-- Retrieves system metrics
-- Gets interface information
-- Tests WiFi auto-discovery
-
-## Test Output
-
-Successful test run example:
-
-```
-=== RUN   TestOpenWrtIntegration
-=== RUN   TestOpenWrtIntegration/BuildPackage
-    Building OpenWrt package...
-    Compiling package...
-    Package built successfully: /path/to/nettestlab_1.0.0-1_x86_64.ipk
---- PASS: TestOpenWrtIntegration/BuildPackage (45.32s)
-=== RUN   TestOpenWrtIntegration/DeployPackage
-    Deploying package to router...
-    Removing existing package...
-    Installing package...
-    Package installed successfully
---- PASS: TestOpenWrtIntegration/DeployPackage (8.41s)
-=== RUN   TestOpenWrtIntegration/ServiceStatus
-    Checking service status...
-    Service is running successfully
---- PASS: TestOpenWrtIntegration/ServiceStatus (2.15s)
-=== RUN   TestOpenWrtIntegration/GRPCConnectivity
-    Testing gRPC connectivity...
-    gRPC connectivity test passed
---- PASS: TestOpenWrtIntegration/GRPCConnectivity (1.23s)
-=== RUN   TestOpenWrtIntegration/ProfileManagement
-    Testing profile management...
-    Listing profiles...
-    Found 6 profiles
-    Creating custom profile...
-    Profile management test passed
---- PASS: TestOpenWrtIntegration/ProfileManagement (3.45s)
-=== RUN   TestOpenWrtIntegration/NetworkControl
-    Testing network control...
-    Getting system status...
-    Using interface wlan0 for testing
-    Applying custom network conditions...
-    Network conditions applied successfully
-    Applying 3G profile...
-    3G profile applied successfully
-    Resetting network conditions...
-    Network control test passed
---- PASS: TestOpenWrtIntegration/NetworkControl (12.67s)
-=== RUN   TestOpenWrtIntegration/SystemMonitoring
-    Testing system monitoring...
-    Getting system metrics...
-    System metrics: CPU 15.2%, Memory 42.1%, Uptime 3600s
-    Getting interface information...
-    Interface wlan0: up
-    System monitoring test passed
---- PASS: TestOpenWrtIntegration/SystemMonitoring (2.34s)
---- PASS: TestOpenWrtIntegration (75.57s)
-PASS
-ok      github.com/Eitol/NetTestLab/tests/integration   75.574s
-```
-
-## Troubleshooting
-
-### Build Issues
-
-**Package compilation fails:**
-```bash
-# Check SDK setup
-ls -la $OPENWRT_SDK_PATH/
-./scripts/feeds list -i | grep golang
-
-# Verify dependencies
-make package/nettestlab/download
-make package/nettestlab/prepare
-```
-
-### Connection Issues
-
-**SSH connection fails:**
-```bash
-# Test SSH connectivity
-ssh $NETTESTLAB_ROUTER_USER@$NETTESTLAB_ROUTER_IP "echo 'Connection OK'"
-
-# Check SSH key permissions
-chmod 600 $SSH_KEY_PATH
-```
-
-**gRPC connection fails:**
-```bash
-# Check service status on router
-ssh root@$NETTESTLAB_ROUTER_IP "/etc/init.d/nettestlab status"
-
-# Check logs
-ssh root@$NETTESTLAB_ROUTER_IP "logread | grep nettestlab"
-
-# Check firewall
-ssh root@$NETTESTLAB_ROUTER_IP "iptables -L | grep 8080"
-```
-
-### Service Issues
-
-**Service won't start:**
-```bash
-# Check dependencies
-ssh root@router "opkg list-installed | grep -E 'tc|kmod-sched'"
-
-# Check configuration
-ssh root@router "uci show nettestlab"
-
-# Manual start with debugging
-ssh root@router "nettestlab -port 8080 -log-level debug"
-```
-
-## CI/CD Integration
-
-### GitHub Actions Example
-
-```yaml
-name: OpenWrt Integration Tests
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  integration-test:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Setup Go
-      uses: actions/setup-go@v3
-      with:
-        go-version: 1.21
-    
-    - name: Download OpenWrt SDK
-      run: |
-        wget https://downloads.openwrt.org/releases/23.05.0/targets/x86/64/openwrt-sdk-23.05.0-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
-        tar xf openwrt-sdk-*.tar.xz
-        
-    - name: Setup SDK
-      run: |
-        cd openwrt-sdk-*
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-        
-    - name: Run Integration Tests
-      env:
-        OPENWRT_SDK_PATH: ${{ github.workspace }}/openwrt-sdk-23.05.0-x86-64_gcc-12.3.0_musl.Linux-x86_64
-        NETTESTLAB_ROUTER_IP: ${{ secrets.TEST_ROUTER_IP }}
-        NETTESTLAB_ROUTER_PASSWORD: ${{ secrets.TEST_ROUTER_PASSWORD }}
-      run: |
-        go test -v ./tests/integration/
-```
-
-## Security Notes
-
-- Never commit router passwords or SSH keys
-- Use environment variables or secrets management
-- Consider using dedicated test networks
-- Router firewall rules may need adjustment
-
-## Hardware Recommendations
-
-### Test Router Requirements
-- **RAM**: Minimum 128MB (256MB+ recommended)
-- **Storage**: 50MB+ free space
-- **CPU**: Any OpenWrt-supported architecture
-- **Network**: Ethernet + WiFi for complete testing
-
-### Recommended Test Routers
-- **TP-Link Archer C7 v2/v5**: Good for testing, affordable
-- **Netgear R7800**: High performance, good for stress testing
-- **GL.iNet GL-AX1800**: Modern hardware, good OpenWrt support
-- **x86_64 VM**: Best for CI/CD, easy to automate
-
----
-
-**Next Steps**: Run the integration tests to validate your NetTestLab deployment!
+Para más detalles sobre tests legacy, consultar la documentación histórica del proyecto.

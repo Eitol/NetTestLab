@@ -291,4 +291,280 @@ export class NetTestLabConnectClient {
             throw error;
         }
     }
+
+    // Traffic Capture Service methods - REAL API calls
+    async listDevices() {
+        try {
+            const response = await fetch(`${this.baseUrl}/nettestlab.v1.TrafficCaptureService/ListDevices`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({})
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('Failed to list devices:', error);
+            throw error;
+        }
+    }
+
+    async listUrlTargets() {
+        try {
+            const response = await fetch(`${this.baseUrl}/nettestlab.v1.TrafficCaptureService/ListUrlTargets`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({})
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('Failed to list URL targets:', error);
+            throw error;
+        }
+    }
+
+    async startCapture(captureRequest) {
+        try {
+            const response = await fetch(`${this.baseUrl}/nettestlab.v1.TrafficCaptureService/StartCapture`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(captureRequest)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('Failed to start capture:', error);
+            throw error;
+        }
+    }
+
+    async stopCapture(request) {
+        try {
+            const response = await fetch(`${this.baseUrl}/nettestlab.v1.TrafficCaptureService/StopCapture`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(request)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('Failed to stop capture:', error);
+            throw error;
+        }
+    }
+
+    async getCaptureStatus(request) {
+        try {
+            const response = await fetch(`${this.baseUrl}/nettestlab.v1.TrafficCaptureService/GetCaptureStatus`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(request)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('Failed to get capture status:', error);
+            throw error;
+        }
+    }
+
+    async createUrlTarget(target) {
+        try {
+            const response = await fetch(`${this.baseUrl}/nettestlab.v1.TrafficCaptureService/CreateUrlTarget`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(target)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('Failed to create URL target:', error);
+            throw error;
+        }
+    }
+
+    async createDevice(device) {
+        try {
+            // Use RegisterDevice endpoint since there's no CreateDevice
+            const response = await fetch(`${this.baseUrl}/nettestlab.v1.TrafficCaptureService/RegisterDevice`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    mac_address: device.mac_address,
+                    device_name: device.device_name,
+                    device_model: device.device_model || device.device_type
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            return { created: data.created, success: true };
+        } catch (error) {
+            console.error('Failed to create device:', error);
+            throw error;
+        }
+    }
+
+    async getDevice(deviceId) {
+        // Since there's no GetDevice endpoint, we'll get the device from the list
+        try {
+            const devicesResponse = await this.listDevices();
+            const device = devicesResponse.devices?.find(d => d.id === deviceId);
+            if (device) {
+                return { device };
+            } else {
+                throw new Error('Device not found');
+            }
+        } catch (error) {
+            console.error('Failed to get device:', error);
+            throw error;
+        }
+    }    async updateDevice(deviceId, device) {
+        try {
+            const response = await fetch(`${this.baseUrl}/nettestlab.v1.TrafficCaptureService/UpdateDevice`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ device_id: deviceId, ...device })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('Failed to update device:', error);
+            throw error;
+        }
+    }
+
+    async deleteDevice(deviceId) {
+        try {
+            const response = await fetch(`${this.baseUrl}/nettestlab.v1.TrafficCaptureService/DeleteDevice`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ device_id: deviceId })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('Failed to delete device:', error);
+            throw error;
+        }
+    }
+
+    async getUrlTarget(targetId) {
+        // Since there's no GetUrlTarget endpoint, we'll get the target from the list
+        try {
+            const targetsResponse = await this.listUrlTargets();
+            const target = targetsResponse.targets?.find(t => t.id === targetId);
+            if (target) {
+                return { target };
+            } else {
+                throw new Error('URL Target not found');
+            }
+        } catch (error) {
+            console.error('Failed to get URL target:', error);
+            throw error;
+        }
+    }    async updateUrlTarget(targetId, target) {
+        try {
+            const response = await fetch(`${this.baseUrl}/nettestlab.v1.TrafficCaptureService/UpdateUrlTarget`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ target_id: targetId, ...target })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('Failed to update URL target:', error);
+            throw error;
+        }
+    }
+
+    async deleteUrlTarget(targetId) {
+        try {
+            const response = await fetch(`${this.baseUrl}/nettestlab.v1.TrafficCaptureService/DeleteUrlTarget`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ target_id: targetId })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('Failed to delete URL target:', error);
+            throw error;
+        }
+    }
 }

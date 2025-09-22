@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # OpenWRT router simulation
+  openwrt:
+    build:
+      context: .
+      dockerfile: docker/openwrt.Dockerfile
+    container_name: nettestlab-openwrt
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    networks:
+      - nettestlab-network
+    ports:
+      - "8090:8080"   # NetTestLab server (mapped to avoid conflicts)
+      - "2222:22"     # SSH access to OpenWRT VM
+    volumes:
+      - ./bin/nettestlab:/tmp/nettestlab-bin:ro
+      - ./tests/integration/config:/etc/nettestlab:ro
+      - ./tests/integration/data:/tmp/nettestlab
+    environment:
+      - NETTESTLAB_DATA_DIR=/tmp/nettestlab-data
+      - NETTESTLAB_CONFIG_DIR=/etc/nettestlab
+
+  # Test client that generates traffic and runs tests
+  test-client:
+    build:
+      context: .
+      dockerfile: docker/test-client.Dockerfile
+    container_name: nettestlab-test-client
+    depends_on:
+      - openwrt
+    networks:
+      - nettestlab-network
+    volumes:
+      - ./tests/integration/scripts:/tests:ro
+      - ./tests/integration/results:/results
+    environment:
+      - OPENWRT_HOST=openwrt
+      - OPENWRT_PORT=8080
+      - TEST_RESULTS_DIR=/results
+    command: >
+      sh -c "
+        # Wait for OpenWRT to be ready
+        sleep 30 &&
+        
+        # Run integration tests
+        cd /tests &&
+        ./run-integration-tests.sh
+      "
+
+  # Traffic generator for testing capture functionality
+  traffic-generator:
+    build:
+      context: .
+      dockerfile: docker/traffic-generator.Dockerfile
+    container_name: nettestlab-traffic-gen
+    depends_on:
+      - openwrt
+    networks:
+      - nettestlab-network
+
+networks:
+  nettestlab-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.100.0/24
