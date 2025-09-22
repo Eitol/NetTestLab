@@ -81,17 +81,17 @@ func (m *Manager) markNonRegisteredDevicesAsDisconnected() error {
 	}
 
 	now := time.Now().Format(time.RFC3339)
-	
+
 	for _, device := range nonRegisteredDevices {
 		device.ConnectionStatus = int(nettestlabv1.DeviceConnectionStatus_DEVICE_CONNECTION_STATUS_DISCONNECTED)
 		device.LastSeen = &now
-		
+
 		err := m.db.UpdateDevice(device)
 		if err != nil {
 			fmt.Printf("Warning: failed to mark device %s as disconnected: %v\n", device.MacAddress, err)
 		}
 	}
-	
+
 	return nil
 }
 

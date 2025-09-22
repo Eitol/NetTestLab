@@ -67,7 +67,7 @@ func (d *Discovery) resolveHostname(ipAddress string) string {
 	if ipAddress == "" {
 		return ""
 	}
-	
+
 	names, err := net.LookupAddr(ipAddress)
 	if err != nil || len(names) == 0 {
 		return ""
@@ -126,18 +126,18 @@ func (d *Discovery) getWiFiInterfaces() ([]string, error) {
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		
+
 		// Look for interface name
 		if strings.HasPrefix(line, "Interface ") {
 			currentInterface = strings.TrimPrefix(line, "Interface ")
 			isAP = false
 		}
-		
+
 		// Check if interface is in AP mode
 		if strings.Contains(line, "type AP") {
 			isAP = true
 		}
-		
+
 		// If we found an AP interface, add it to the list
 		if currentInterface != "" && isAP && !strings.Contains(line, "Interface ") {
 			// Check if this interface is already added
@@ -168,21 +168,21 @@ func (d *Discovery) scanWiFiInterface(interfaceName string) ([]*DetectedDevice, 
 
 	var devices []*DetectedDevice
 	lines := strings.Split(string(output), "\n")
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		
+
 		// Look for station MAC addresses
 		if strings.HasPrefix(line, "Station ") {
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {
 				macAddress := parts[1]
-				
+
 				// Validate MAC address format
 				if d.isValidMACAddress(macAddress) {
 					// Try to get IP from ARP table for this specific MAC
 					ipAddress := d.getIPFromARP(macAddress)
-					
+
 					device := &DetectedDevice{
 						MacAddress: strings.ToLower(macAddress),
 						IPAddress:  ipAddress,
@@ -207,7 +207,7 @@ func (d *Discovery) getIPFromARP(macAddress string) string {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	
+
 	// Skip header line
 	if scanner.Scan() {
 		// Header: IP address HW type Flags HW address Mask Device

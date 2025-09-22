@@ -181,12 +181,12 @@ func (m *TcpdumpManager) StartCapture(opts StartCaptureOptions) (*TcpdumpProcess
 
 	// Construir comando tcpdump
 	args := m.buildTcpdumpArgs(opts, outputFile)
-	
+
 	// Log del comando completo para debugging
 	fmt.Printf("Starting tcpdump with command: tcpdump %s\n", strings.Join(args, " "))
 	fmt.Printf("Output file: %s\n", outputFile)
 	fmt.Printf("Interface: %s\n", opts.Interface)
-	
+
 	process.cmd = exec.CommandContext(ctx, "tcpdump", args...)
 
 	// Configurar stderr para capturar estadísticas
@@ -270,7 +270,7 @@ func (m *TcpdumpManager) runCapture(process *TcpdumpProcess, maxSizeMB int64) {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			fmt.Printf("tcpdump stderr: %s\n", string(exitError.Stderr))
 		}
-		
+
 		// Verificar si fue cancelado por contexto
 		if process.ctx.Err() == context.Canceled {
 			process.Status = StatusCancelled
